@@ -4,8 +4,8 @@
 # Sources, in order of decreasing publish-friction:
 #
 #   curl -fsSL <install.sh> | sh                                            # npm registry (default)
-#   curl -fsSL <install.sh> | sh -s -- --from-git phamdat721101/n-payment-skill
-#   curl -fsSL <install.sh> | sh -s -- --from-git phamdat721101/n-payment-skill#main
+#   curl -fsSL <install.sh> | sh -s -- --from-git phamdat721101/payment-skill
+#   curl -fsSL <install.sh> | sh -s -- --from-git phamdat721101/payment-skill#main
 #   curl -fsSL <install.sh> | sh -s -- --from-tarball https://example.com/n-payment-skill-1.0.0.tgz
 #   curl -fsSL <install.sh> | sh -s -- --from-path  /Users/me/work/payment-skill
 #
@@ -20,7 +20,7 @@
 set -eu
 
 PKG="n-payment-skill"
-DEFAULT_GIT_REPO="phamdat721101/n-payment-skill"
+DEFAULT_GIT_REPO="phamdat721101/payment-skill"
 DEFAULT_GIT_REF=""
 VERSION="${N_PAYMENT_SKILL_VERSION:-latest}"
 SOURCE="registry"                       # registry | git | tarball | path

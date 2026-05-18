@@ -57,10 +57,10 @@
   ],
   "license": "MIT",
   "author": "phamdat",
-  "homepage": "https://github.com/phamdat721101/n-payment-skill#readme",
+  "homepage": "https://github.com/phamdat721101/payment-skill#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/phamdat721101/n-payment-skill.git"
+    "url": "git+https://github.com/phamdat721101/payment-skill.git"
   },
   "engines": {
     "node": ">=18"

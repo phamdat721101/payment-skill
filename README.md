@@ -6,8 +6,7 @@
 > [`n-payment`](https://www.npmjs.com/package/n-payment) SDK.
 
 [![npm](https://img.shields.io/npm/v/n-payment-skill?logo=npm)](https://www.npmjs.com/package/n-payment-skill)
-[![pypi](https://img.shields.io/pypi/v/n-payment-skill-py?logo=pypi)](https://pypi.org/project/n-payment-skill-py)
-[![license](https://img.shields.io/github/license/phamdat721101/n-payment-skill)](./LICENSE)
+[![license](https://img.shields.io/github/license/phamdat721101/payment-skill)](./LICENSE)
 
 ```bash
 # One line. Detects your AI host, drops the skill, generates a wallet,
@@ -21,7 +20,8 @@ npx n-payment-skill
 
 20 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
 Windsurf, Continue, GitHub Copilot, generic MCP, OpenAI / ChatGPT,
-LangChain, and LlamaIndex** — Node and Python.
+LangChain, and LlamaIndex** — Node-native, with a 15-line Python snippet
+for the rest (no separate Python package needed).
 
 | # | Tool | Purpose |
 |---|------|---------|
@@ -62,8 +62,8 @@ LangChain, and LlamaIndex** — Node and Python.
 | OpenAI Assistants | 📋 paste | tools.json | `n-payment-skill export openai` |
 | LangChain JS | 📋 paste | DynamicStructuredTool | `n-payment-skill export langchain` |
 | LlamaIndex JS | 📋 paste | tool() | `n-payment-skill export llamaindex` |
-| LangChain Python | ✅ | `n_payment_skill.langchain.get_tools()` | `pip install n-payment-skill-py[langchain]` |
-| LlamaIndex Python | ✅ | `n_payment_skill.llamaindex.get_tools()` | `pip install n-payment-skill-py[llamaindex]` |
+| LangChain Python | 📋 paste | 15-line subprocess snippet | See [Use from Python](#use-from-python) |
+| LlamaIndex Python | 📋 paste | 15-line subprocess snippet | See [Use from Python](#use-from-python) |
 
 ---
 
@@ -94,12 +94,10 @@ Paste this single line into your AI chat:
 
 The agent will run the command and confirm the host, wallet, and faucet.
 
-### Python sister
+### Python
 
-```bash
-npm i -g n-payment-skill            # one-time, on the same machine
-pip install n-payment-skill-py
-```
+No separate package — Python users call the Node MCP server with a 15-line
+snippet. See [Use from Python](#use-from-python).
 
 ---
 
@@ -112,21 +110,21 @@ a fresh GitHub repo, a tarball, or a local checkout.
 
 ```bash
 # One-shot run — npm clones the repo, runs `prepare` to compile dist/, then runs the bin.
-npx github:phamdat721101/n-payment-skill
+npx github:phamdat721101/payment-skill
 
 # Persistent global install (same idea, just stays installed).
-npm install -g github:phamdat721101/n-payment-skill
+npm install -g github:phamdat721101/payment-skill
 
 # Pin to a branch, tag, or commit:
-npm install -g github:phamdat721101/n-payment-skill#main
-npm install -g github:phamdat721101/n-payment-skill#v1.0.0
-npm install -g github:phamdat721101/n-payment-skill#a1b2c3d
+npm install -g github:phamdat721101/payment-skill#main
+npm install -g github:phamdat721101/payment-skill#v1.0.0
+npm install -g github:phamdat721101/payment-skill#a1b2c3d
 ```
 
 ### From a tarball (offline / private mirror)
 
 ```bash
-git clone https://github.com/phamdat721101/n-payment-skill && cd n-payment-skill
+git clone https://github.com/phamdat721101/payment-skill && cd n-payment-skill
 npm install && npm pack                     # produces n-payment-skill-1.0.0.tgz
 npm install -g ./n-payment-skill-1.0.0.tgz   # ship that file anywhere
 ```
@@ -134,7 +132,7 @@ npm install -g ./n-payment-skill-1.0.0.tgz   # ship that file anywhere
 ### From a local checkout (development)
 
 ```bash
-git clone https://github.com/phamdat721101/n-payment-skill
+git clone https://github.com/phamdat721101/payment-skill
 cd n-payment-skill && npm install
 npm install -g .                             # global "n-payment-skill" bin points at this checkout
 # …or just run the un-installed bin:
@@ -148,14 +146,14 @@ node dist/cli.js setup
 curl -fsSL https://n-payment.dev/install.sh | sh
 
 # GitHub (no publish):
-curl -fsSL https://raw.githubusercontent.com/phamdat721101/n-payment-skill/main/install.sh \
-  | sh -s -- --from-git phamdat721101/n-payment-skill
+curl -fsSL https://raw.githubusercontent.com/phamdat721101/payment-skill/main/install.sh \
+  | sh -s -- --from-git phamdat721101/payment-skill
 
 # Pinned ref:
-curl -fsSL …/install.sh | sh -s -- --from-git phamdat721101/n-payment-skill#main
+curl -fsSL …/install.sh | sh -s -- --from-git phamdat721101/payment-skill#main
 
 # Tarball URL (e.g., a GitHub release asset):
-curl -fsSL …/install.sh | sh -s -- --from-tarball https://github.com/phamdat721101/n-payment-skill/releases/download/v1.0.0/n-payment-skill-1.0.0.tgz
+curl -fsSL …/install.sh | sh -s -- --from-tarball https://github.com/phamdat721101/payment-skill/releases/download/v1.0.0/n-payment-skill-1.0.0.tgz
 
 # Local directory (already-cloned repo):
 curl -fsSL …/install.sh | sh -s -- --from-path /Users/me/work/n-payment-skill
@@ -163,16 +161,8 @@ curl -fsSL …/install.sh | sh -s -- --from-path /Users/me/work/n-payment-skill
 
 ### Python without PyPI
 
-```bash
-# 1. Install the Node binary first (any path above).
-npm install -g github:phamdat721101/n-payment-skill
-
-# 2. Install the Python sister directly from GitHub.
-pip install "git+https://github.com/phamdat721101/n-payment-skill.git#subdirectory=payment-skill-py"
-
-# Optional adapters:
-pip install "git+https://github.com/phamdat721101/n-payment-skill.git#subdirectory=payment-skill-py&egg=n-payment-skill-py[langchain]"
-```
+There is no separate Python package — Python users call the Node MCP server
+over stdio. See [Use from Python](#use-from-python) for the 15-line snippet.
 
 > Note on the `n-payment` SDK peer dependency: it is declared `optional`, so
 > install never fails when the SDK is not on the registry yet. Tools that
@@ -180,7 +170,7 @@ pip install "git+https://github.com/phamdat721101/n-payment-skill.git#subdirecto
 > call time. If you also have `n-payment` only on GitHub, install both:
 >
 > ```bash
-> npm install -g github:phamdat721101/n-payment github:phamdat721101/n-payment-skill
+> npm install -g github:phamdat721101/n-payment github:phamdat721101/payment-skill
 > ```
 
 ---
@@ -227,20 +217,21 @@ flowchart LR
 - the SKILL.md tool table,
 - the MCP `tools/list` and `tools/call` handlers,
 - the OpenAI / Anthropic function-call schema,
-- the LangChain & LlamaIndex adapters (Node + Python),
-- the ChatGPT custom-GPT OpenAPI manifest.
+- the LangChain & LlamaIndex JS adapters (auto-exported),
+- the ChatGPT custom-GPT OpenAPI manifest,
+- and (via MCP stdio) any Python / Go / Rust client.
 
 Adding a tool is **one new entry** — every host gets it automatically.
 
 ```mermaid
 flowchart TB
     A["src/tools.ts (TOOLS)"] --> B[SKILL.md]
-    A --> C["MCP /tools"]
+    A --> C["MCP /tools (stdio + HTTP)"]
     A --> D[tools.json]
     A --> E[LangChain JS]
     A --> F[LlamaIndex JS]
     A --> G[ChatGPT OpenAPI]
-    A --> H[Python adapters]
+    C --> H["Python / Go / Rust\n(any MCP stdio client)"]
 ```
 
 ---
@@ -291,7 +282,7 @@ will then suggest n-payment SDK code when the conversation calls for it.
 ```bash
 docker run -p 8081:8081 \
   -v ~/.n-payment:/root/.n-payment \
-  ghcr.io/phamdat721101/n-payment-skill:latest
+  ghcr.io/phamdat721101/payment-skill:latest
 
 # → POST http://host:8081/mcp { "jsonrpc": "2.0", "method": "tools/list" }
 # → GET  http://host:8081/health
@@ -341,24 +332,62 @@ The generated file exports `nPaymentTools` (an array of
 n-payment-skill export llamaindex > n-payment-tools.ts
 ```
 
-### LangChain Python
+### Use from Python
+
+No `pip install` package — `n-payment-skill` ships only as the Node binary.
+Python users call its MCP stdio server directly. **15 lines, zero deps:**
 
 ```python
-from langchain_openai import ChatOpenAI
-from n_payment_skill.langchain import get_tools
+import atexit, json, subprocess
 
-llm = ChatOpenAI(model="gpt-4o-mini").bind_tools(get_tools())
+_proc = subprocess.Popen(
+    ["n-payment-skill", "mcp", "--stdio"],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
+)
+atexit.register(_proc.terminate)
+_id = 0
+
+def call(method, params=None):
+    global _id; _id += 1
+    _proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": _id, "method": method,
+                                  "params": params or {}}) + "\n")
+    _proc.stdin.flush()
+    return json.loads(_proc.stdout.readline())
+
+call("initialize")
+tools = call("tools/list")["result"]["tools"]               # all 20 tools
+print(call("tools/call",
+           {"name": "negotiate",
+            "arguments": {"price_micros": 10_000, "caller_reputation": 95}}))
 ```
 
-### LlamaIndex Python
+**LangChain** (build a `BaseTool` from each entry of `tools`):
 
 ```python
-from llama_index.core.agent import ReActAgent
-from llama_index.llms.openai import OpenAI
-from n_payment_skill.llamaindex import get_tools
-
-agent = ReActAgent.from_tools(get_tools(), llm=OpenAI(model="gpt-4o-mini"))
+from langchain_core.tools import BaseTool
+def make_tool(t):
+    class _T(BaseTool):
+        name = t["name"]; description = t["description"]
+        def _run(self, **kwargs):
+            return call("tools/call", {"name": self.name, "arguments": kwargs})
+    return _T()
+lc_tools = [make_tool(t) for t in tools]
 ```
+
+**LlamaIndex** (build a `FunctionTool` per entry):
+
+```python
+from llama_index.core.tools import FunctionTool
+def make_tool(t):
+    return FunctionTool.from_defaults(
+        fn=lambda **kw: call("tools/call", {"name": t["name"], "arguments": kw}),
+        name=t["name"], description=t["description"],
+    )
+li_tools = [make_tool(t) for t in tools]
+```
+
+Schema parity is automatic — adding a tool to `src/tools.ts` makes it
+available in Python on the next process start, no Python-side changes.
 
 ---
 
@@ -426,8 +455,6 @@ payment-skill/
                           #   skill, mcp, hosts, exports)
 ```
 
-Sister Python package at [`payment-skill-py/`](../payment-skill-py).
-
 ---
 
 ## Troubleshooting
@@ -451,7 +478,7 @@ Run `n-payment-skill doctor` any time for a colored health report.
 ## Development
 
 ```bash
-git clone https://github.com/phamdat721101/n-payment-skill
+git clone https://github.com/phamdat721101/payment-skill
 cd n-payment-skill
 npm install
 npm test          # 56 tests

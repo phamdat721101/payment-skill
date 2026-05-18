@@ -292,15 +292,27 @@ export const negotiate = async (args: {
   escrow_threshold_micros?: number;
 }): Promise<ToolResult> =>
   wrap(async () => {
-    const { PaymentNegotiator } = await np();
-    const neg = new PaymentNegotiator({
-      creditThreshold: args.credit_threshold,
-      escrowThreshold: args.escrow_threshold_micros,
-    });
-    const r = (neg as {
-      negotiate: (p: number, rep: number) => unknown;
-    }).negotiate(args.price_micros, args.caller_reputation);
-    return ok(r);
+    // Pure-logic negotiator — kept inline so this tool works even without
+    // the n-payment SDK installed (mirrors n-payment v0.8 PaymentNegotiator).
+    const creditThreshold = args.credit_threshold ?? 80;
+    const escrowThreshold = args.escrow_threshold_micros ?? 50_000;
+    const price = args.price_micros;
+    const rep = args.caller_reputation;
+    if (rep >= creditThreshold) {
+      return ok({
+        terms: 'credit',
+        price,
+        reason: `Reputation ${rep} >= credit threshold`,
+      });
+    }
+    if (price >= escrowThreshold && rep < creditThreshold) {
+      return ok({
+        terms: 'escrow',
+        price,
+        reason: `High value ${price} with reputation ${rep}`,
+      });
+    }
+    return ok({ terms: 'direct', price, reason: 'Standard direct payment' });
   });
 
 export const create_session = async (
