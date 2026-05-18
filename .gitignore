@@ -1,0 +1,106 @@
+# ─── Dependencies ────────────────────────────────────────────────────────────
+node_modules/
+.pnp/
+.pnp.*
+jspm_packages/
+
+# ─── Build outputs ───────────────────────────────────────────────────────────
+dist/
+build/
+out/
+.tsup/
+.turbo/
+.next/
+.cache/
+.parcel-cache/
+
+# TypeScript incremental cache
+*.tsbuildinfo
+.tsbuildinfo
+
+# Lint / formatter caches
+.eslintcache
+.stylelintcache
+.prettiercache
+
+# ─── Pack & release artifacts ────────────────────────────────────────────────
+*.tgz
+*.tar.gz
+*.zip
+
+# ─── Test & coverage ─────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+.vitest/
+.test-results/
+junit.xml
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-debug.log
+.npm/
+.yarn/
+
+# ─── Environment files (secrets) ─────────────────────────────────────────────
+.env
+.env.*
+# Allow committing the example/template
+!.env.example
+!.env.template
+!.env.sample
+
+# ─── Wallet & key material — NEVER commit ────────────────────────────────────
+*.wallet.json
+*.keystore
+*-keystore.json
+*.key
+*.pem
+*.p12
+*.pfx
+*.priv
+*.crt
+private-key*
+private_key*
+secret*.json
+mnemonic*
+seed-phrase*
+.n-payment/
+.n-payment-test/
+wallets/
+
+# ─── Cloud / service credentials ─────────────────────────────────────────────
+.aws/
+.azure/
+.gcp/
+credentials.json
+service-account*.json
+gcp-credentials*.json
+firebase-credentials*.json
+
+# ─── IDE / editor ────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+.zed/
+.history/
+*.swp
+*.swo
+*~
+.\#*
+
+# ─── OS noise ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ─── Temporary / scratch ─────────────────────────────────────────────────────
+tmp/
+.tmp/
+*.bak
+*.tmp
+*.orig

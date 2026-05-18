@@ -1,0 +1,91 @@
+{
+  "name": "n-payment-skill",
+  "version": "1.0.0",
+  "description": "One-line install web3 payment skill for AI agents (Claude Code, Kiro, Gemini CLI, Cursor, Windsurf, Continue, GitHub Copilot, MCP). Wraps the n-payment SDK with a Gstack-style skill, MCP stdio + HTTP server, OpenAI/LangChain/LlamaIndex exports, zero-config dev wallet on testnet.",
+  "type": "module",
+  "bin": {
+    "n-payment-skill": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tools": {
+      "types": "./dist/tools.d.ts",
+      "import": "./dist/tools.js"
+    }
+  },
+  "files": [
+    "dist",
+    "SKILL.md",
+    "install.sh",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "dev": "tsup --watch",
+    "prepare": "tsup",
+    "prepublishOnly": "pnpm build && pnpm test"
+  },
+  "keywords": [
+    "ai-agent",
+    "agent-skill",
+    "claude-code",
+    "kiro",
+    "gemini-cli",
+    "cursor",
+    "windsurf",
+    "continue",
+    "copilot",
+    "mcp",
+    "x402",
+    "goat-network",
+    "stablecoin",
+    "usdc",
+    "payment",
+    "web3",
+    "n-payment",
+    "gstack"
+  ],
+  "license": "MIT",
+  "author": "phamdat",
+  "homepage": "https://github.com/phamdat721101/n-payment-skill#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phamdat721101/n-payment-skill.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "prompts": "^2.4.2",
+    "viem": "^2.21.0",
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.23.0"
+  },
+  "peerDependencies": {
+    "n-payment": ">=0.5.0"
+  },
+  "peerDependenciesMeta": {
+    "n-payment": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/prompts": "^2.4.9",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
