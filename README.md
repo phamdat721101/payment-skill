@@ -4,6 +4,11 @@
 > Pay HTTP 402 endpoints, monetize APIs, off-ramp USDC, manage agent
 > identity, delegate budgets across agents — through the
 > [`n-payment`](https://www.npmjs.com/package/n-payment) SDK.
+>
+> 🛰️ **Now ships native [SpaceCoin / SpaceRouter](https://spacerouter.org)
+> support** — pay $SPACE on Creditcoin to route any HTTP request through
+> the decentralized **residential-proxy network**. Real home IPs in any
+> country, on-chain escrow, 5-day withdrawal timelock. One prompt, one tool.
 
 [![npm](https://img.shields.io/npm/v/n-payment-skill?logo=npm)](https://www.npmjs.com/package/n-payment-skill)
 [![license](https://img.shields.io/github/license/phamdat721101/payment-skill)](./LICENSE)
@@ -14,13 +19,15 @@
 npx n-payment-skill
 ```
 
-📖 **3-minute walkthrough:** [docs/article.md](./docs/article.md) — build a paid endpoint and pay it from another script in one prompt.
+📖 **3-minute walkthroughs:**
+[`docs/article.md`](./docs/article.md) — build a paid endpoint and pay it from another script in one prompt.
+[`docs/spacecoin-article.md`](./docs/spacecoin-article.md) — pay $SPACE through SpaceRouter for residential-IP routing.
 
 ---
 
 ## What you get
 
-23 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
+27 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
 Windsurf, Continue, GitHub Copilot, generic MCP, OpenAI / ChatGPT,
 LangChain, and LlamaIndex** — Node-native, with a 15-line Python snippet
 for the rest (no separate Python package needed).
@@ -50,6 +57,10 @@ for the rest (no separate Python package needed).
 | 21 | `morph_reference_key` | Attach / query a Morph Reference Key (merchant order ID linked on-chain). |
 | 22 | `morph_altfee_pay` | STUB: pay gas in USDC / USDT0 / BGB on Morph (awaiting SDK upstream). |
 | 23 | `morph_passkey_pay` | STUB: passwordless WebAuthn payment on Morph (awaiting SDK upstream). |
+| 24 | `spacerouter_pay` | 🛰️ Send a paid HTTP request through the SpaceRouter residential-proxy network. Region + IP-type knobs. |
+| 25 | `spacerouter_escrow` | 🛰️ Manage on-chain SPACE escrow on Creditcoin: `deposit / balance / initiate-withdrawal / execute-withdrawal / cancel-withdrawal / status`. |
+| 26 | `spacerouter_sync_receipts` | 🛰️ Push pending Leg-1 receipts on-chain into the SpaceRouter escrow. |
+| 27 | `spacerouter_admin` | 🛰️ Manage SpaceRouter API keys via a coordination/admin API instance (advanced; needs `SR_ADMIN_URL`). |
 
 ### Host coverage
 
@@ -94,8 +105,10 @@ curl -fsSL https://n-payment.dev/install.sh | sh
 Paste this single line into your AI chat:
 
 > Run `npx n-payment-skill` to install the n-payment web3 payment skill.
-> It gives you 20 tools for paying APIs, accepting payments, off-ramping
-> USDC, generating QR codes, and delegating budgets to sub-agents.
+> It gives you 27 tools for paying APIs, accepting payments, off-ramping
+> USDC, generating QR codes, delegating budgets to sub-agents, and
+> routing through the SpaceRouter decentralized residential-proxy network
+> with $SPACE on Creditcoin.
 
 The agent will run the command and confirm the host, wallet, and faucet.
 
@@ -204,6 +217,69 @@ export GOAT_API_KEY=… GOAT_API_SECRET=… GOAT_MERCHANT_ID=…
 
 ---
 
+## 🛰️ Pay through SpaceRouter (SpaceCoin)
+
+> AI agents need real **residential IPs** to bypass bot detection.
+> [SpaceCoin's SpaceRouter](https://spacerouter.org) delivers them, paid for
+> in **$SPACE** on [Creditcoin](https://creditcoin.org) with on-chain escrow
+> and a 5-day withdrawal timelock for safety. The skill auto-creates a
+> *dedicated* wallet at `~/.n-payment/wallets/spacerouter.json` so the proxy
+> receipt key is isolated from your general agent wallet.
+
+### Step 1 — Validate the flow without holding any SPACE
+
+```bash
+# Auto-creates ~/.n-payment/wallets/spacerouter.json on first call (chmod 0600).
+n-payment-skill tools call spacerouter_escrow '{"action":"status","dry_run":true}'
+
+# Routes through real fetch + reports a synthetic dry-node — proves the wiring.
+n-payment-skill tools call spacerouter_pay '{"url":"https://httpbin.org/ip","region":"KR","ip_type":"residential","dry_run":true}'
+```
+
+### Step 2 — Fund the dedicated wallet (you do this yourself)
+
+The skill ships **no programmatic faucet** — `$SPACE` and `CTC` are real
+assets. Buy on a [supported exchange](https://docs.spacecoin.org/usdspace-token/token-overview-and-utility)
+and withdraw to the address printed by step 1. Tiny CTC (~0.01) covers gas.
+
+### Step 3 — Opt into mainnet, then deposit + pay
+
+```bash
+n-payment-skill config set testnetMode false
+
+# Approves SPACE and deposits into the on-chain TokenPaymentEscrow.
+n-payment-skill tools call spacerouter_escrow '{"action":"deposit","amount_space":"10"}'
+
+# Real residential-proxy request, paid per byte from the escrow.
+n-payment-skill tools call spacerouter_pay '{"url":"https://httpbin.org/ip","region":"KR","ip_type":"residential"}'
+```
+
+### Step 4 — Settle receipts and (optionally) withdraw
+
+```bash
+n-payment-skill tools call spacerouter_sync_receipts '{}'
+n-payment-skill tools call spacerouter_escrow '{"action":"initiate-withdrawal","amount_space":"5"}'
+# wait 5 days
+n-payment-skill tools call spacerouter_escrow '{"action":"execute-withdrawal"}'
+```
+
+### Or: just talk to your agent
+
+> *"Pay for `https://httpbin.org/ip` through SpaceRouter, region KR, residential IPs."*
+>
+> *"What's my SPACE escrow status on Creditcoin?"*
+>
+> *"Generate a 5 SPACE payment QR for `0xabc…` on creditcoin-mainnet."*
+
+The skill picks the right tool from the registry, builds the EIP-712 receipt,
+lands the four `X-SpaceRouter-*` headers on the proxy `CONNECT` (where the
+gateway can read them), and returns the body alongside the serving node's
+country and IP type.
+
+📖 **Full walkthrough:** [`docs/spacecoin-article.md`](./docs/spacecoin-article.md).
+
+---
+
 ## How it works
 
 ```mermaid
@@ -211,9 +287,9 @@ flowchart LR
     user[("User\nin AI chat")] -->|"pay for X"| host
     host{{"AI host\n(Claude / Kiro / Cursor / Gemini / …)"}} -->|MCP stdio<br/>tools/call| binary
     binary[["n-payment-skill CLI\n(Node, single binary)"]] --> tools
-    tools["20 tool handlers"] --> sdk
-    sdk[("n-payment SDK\nx402 / MPP / GOAT / Stellar / XRPL / Solana")] --> chain[("Chain RPCs\nUSDC contracts")]
-    binary --> wallet[(["~/.n-payment/wallets/default.json\n(0600)"])]
+    tools["27 tool handlers"] --> sdk
+    sdk[("n-payment SDK + skill adapters\nx402 / MPP / GOAT / Stellar / XRPL / Solana / Morph / SpaceRouter")] --> chain[("Chain RPCs\nUSDC / SPACE contracts")]
+    binary --> wallet[(["~/.n-payment/wallets/\ndefault.json + spacerouter.json\n(0600)"])]
 ```
 
 **Single source of truth.** A declarative `TOOLS` array in
@@ -260,7 +336,7 @@ npx n-payment-skill --target cursor       # or windsurf / continue
 ```
 
 Adds an `mcpServers.n-payment` entry to the host's MCP config without
-disturbing existing servers. Restart the host; the 20 tools appear under
+disturbing existing servers. Restart the host; the 27 tools appear under
 the **n-payment** server.
 
 ### Gemini CLI (extension)
@@ -360,7 +436,7 @@ def call(method, params=None):
     return json.loads(_proc.stdout.readline())
 
 call("initialize")
-tools = call("tools/list")["result"]["tools"]               # all 20 tools
+tools = call("tools/list")["result"]["tools"]               # all 27 tools
 print(call("tools/call",
            {"name": "negotiate",
             "arguments": {"price_micros": 10_000, "caller_reputation": 95}}))
@@ -420,6 +496,11 @@ n-payment-skill config set telemetry off         # default
 | `STELLAR_OZ_API_KEY` | `pay` (Stellar mainnet) | OpenZeppelin Relayer x402 API key (generate at https://channels.openzeppelin.com/gen). Testnet uses Coinbase free facilitator. |
 | `NPAYMENT_ESCROW_CONTRACT` | `create_escrow` | ERC-8183 contract address |
 | `NPAYMENT_BTC_VAULT` | `btc_lend` | BTC vault contract (GOAT Network) |
+| `SR_GATEWAY_URL` / `SR_GATEWAY_MANAGEMENT_URL` | `spacerouter_*` | Override the gateway proxy + management API URLs (defaults: `https://gateway.spacerouter.org`, `:8081`). |
+| `SR_ESCROW_PRIVATE_KEY` | `spacerouter_*` | Override the dedicated SpaceRouter wallet's key. Defaults to `~/.n-payment/wallets/spacerouter.json`. |
+| `SR_ESCROW_CONTRACT_ADDRESS` / `SR_ESCROW_CHAIN_RPC` | `spacerouter_*` | Override TokenPaymentEscrow address and Creditcoin RPC (defaults provided). |
+| `SR_REGION` / `SR_IP_TYPE` | `spacerouter_pay` | Default region (ISO-3166 α-2) and IP type (`residential` / `mobile` / `business` / `hosting`). |
+| `SR_ADMIN_URL` | `spacerouter_admin` | URL of a SpaceRouter coordination/admin API instance. Required only for API-key management. |
 
 ---
 
@@ -448,8 +529,8 @@ payment-skill/
 ├── package.json
 ├── src/
 │   ├── cli.ts            # commander-based CLI (setup default, install, mcp, …)
-│   ├── tools.ts          # SINGLE source of truth: 20 tool defs + types
-│   ├── handlers.ts       # 20 handler implementations (n-payment SDK)
+│   ├── tools.ts          # SINGLE source of truth: 27 tool defs + types
+│   ├── handlers.ts       # 27 handler implementations (n-payment SDK)
 │   ├── schema.ts         # zod → JSON Schema / OpenAI fn-call
 │   ├── exports.ts        # paste-ready exports (chatgpt-gpt, langchain, …)
 │   ├── mcp.ts            # transport-agnostic dispatcher + stdio + HTTP
@@ -458,9 +539,13 @@ payment-skill/
 │   ├── wallet.ts         # ~/.n-payment/wallets/<name>.json (chmod 0600)
 │   ├── config.ts         # ~/.n-payment/config.json
 │   ├── faucet.ts         # CHAIN_META + Circle/Tempo faucet + doctor
+│   ├── morph.ts          # Morph adapter: HMAC, x402 client, Reference Key
+│   ├── stellar.ts        # Stellar adapter: keypair derivation, SEP-7 URI, Horizon
+│   ├── spacerouter.ts    # SpaceRouter (SpaceCoin): dedicated wallet, escrow ABI, gateway client, dry-run
 │   └── index.ts
-└── test/                 # 92 vitest tests (tools, schema, wallet, faucet,
-                          #   skill, mcp, hosts, exports, morph, stellar)
+└── test/                 # 119 vitest tests (tools, schema, wallet, faucet,
+                          #   skill, mcp, hosts, exports, morph, stellar,
+                          #   spacerouter)
 ```
 
 ---
@@ -481,6 +566,12 @@ payment-skill/
 | `RPC unreachable` | Check internet / corporate proxy; retry `n-payment-skill doctor` |
 | `Circle faucet 429` | Rate-limited; visit `https://faucet.circle.com` and drip manually |
 | `ESCROW_CONFIG_MISSING` | `export NPAYMENT_ESCROW_CONTRACT=0x…` |
+| `SPACEROUTER_SDK_MISSING` | `npm i @spacenetwork/spacerouter` (optional peer dep — install never fails without it) |
+| `SPACEROUTER_NO_NODES` | HTTP 503: no Provider matches your `region` + `ip_type`. Drop the IP-type filter or pick a more popular region. |
+| `SPACEROUTER_AUTH_FAILED` | HTTP 407: `gatewayMgmtUrl` points at the proxy listener. The skill's defaults are correct; only override `SR_GATEWAY_MANAGEMENT_URL` if you know your gateway split. |
+| `SPACEROUTER_TIMELOCK_NOT_EXPIRED` | Withdrawals have a 5-day delay. Run `spacerouter_escrow {action:"status"}` to read `unlock_at_iso`. |
+| `SPACEROUTER_WALLET_MISSING_FUNDS` | Send SPACE+CTC to the dedicated address printed by `spacerouter_escrow status`. The skill ships no faucet — SPACE is a real asset. |
+| `SPACEROUTER_ADMIN_URL_MISSING` | `export SR_ADMIN_URL=https://your-admin-api`. Most users don't need this — `spacerouter_admin` is for SpaceRouter operators. |
 | Cursor / Windsurf doesn't see the tools | Restart the IDE after install |
 | `npm i -g` permission denied | Run with `sudo` or set a user-writable `npm prefix` |
 
@@ -494,7 +585,7 @@ Run `n-payment-skill doctor` any time for a colored health report.
 git clone https://github.com/phamdat721101/payment-skill
 cd n-payment-skill
 npm install
-npm test          # 92 tests
+npm test          # 119 tests
 npm run build
 node dist/cli.js --version
 ```

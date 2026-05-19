@@ -34,13 +34,25 @@ import {
   isStellarConfigError,
   pickStellarConfig,
 } from './stellar.js';
+import {
+  createSpaceRouterAdmin,
+  formatSpaceWei,
+  getSpaceRouterWallet,
+  parseSpaceWei,
+  pickSpaceRouterConfig,
+  SpaceRouterClient,
+  SpaceRouterError,
+} from './spacerouter.js';
 
 // ─── n-payment lazy loader ───────────────────────────────────────────────────
+// Optional peer dep — types only present when the SDK is actually installed.
+// @ts-expect-error optional peer dep
 type NP = typeof import('n-payment');
 let _np: NP | null = null;
 async function np(): Promise<NP> {
   if (_np) return _np;
   try {
+    // @ts-expect-error optional peer dep
     _np = (await import('n-payment')) as NP;
     return _np;
   } catch {
@@ -99,6 +111,24 @@ function viemChain(chain: ChainKey) {
     nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
     rpcUrls: { default: { http: [m.rpcUrl] } },
   });
+}
+
+/**
+ * Resolve the canonical ERC-20 payment token for a chain. Returns the
+ * chain's explicit `paymentToken` when set (e.g. SPACE on Creditcoin), or
+ * a USDC-with-6-decimals shape derived from the legacy `usdc` field, or
+ * undefined when the chain has no ERC-20 payment token registered.
+ *
+ * Single source of truth — used by check_balance and generate_qr so SPACE
+ * (18 decimals) and USDC (6 decimals) flow through the same code paths.
+ */
+function resolvePaymentToken(
+  chain: ChainKey,
+): { address: Address; symbol: string; decimals: number } | undefined {
+  const m = CHAIN_META[chain];
+  if (m.paymentToken) return m.paymentToken;
+  if (m.usdc) return { address: m.usdc, symbol: 'USDC', decimals: 6 };
+  return undefined;
 }
 
 function pickGoatCreds(env: NodeJS.ProcessEnv): {
@@ -239,21 +269,28 @@ export const check_balance = async (
     const meta = CHAIN_META[chain];
     const pub = createPublicClient({ chain: viemChain(chain), transport: http(meta.rpcUrl) });
     const native = await pub.getBalance({ address: w.address });
+    const token = resolvePaymentToken(chain);
     let usdc: string | null = null;
-    if (meta.usdc) {
+    let paymentToken: { symbol: string; balance: string } | null = null;
+    if (token) {
       const bal = (await pub.readContract({
-        address: meta.usdc,
+        address: token.address,
         abi: erc20Abi,
         functionName: 'balanceOf',
         args: [w.address],
       })) as bigint;
-      usdc = formatUnits(bal, 6);
+      const human = formatUnits(bal, token.decimals);
+      paymentToken = { symbol: token.symbol, balance: human };
+      // Back-compat: existing callers read .usdc — populate it only when the
+      // canonical token is actually USDC, so creditcoin-mainnet doesn't lie.
+      if (token.symbol === 'USDC') usdc = human;
     }
     return ok({
       address: w.address,
       chain,
       native_eth: formatUnits(native, 18),
       usdc,
+      paymentToken,
     });
   });
 
@@ -479,16 +516,19 @@ export const generate_qr = async (args: {
       });
     }
     const meta = CHAIN_META[args.chain];
-    if (!meta.usdc) return fail(`No USDC token registered for ${args.chain}`, 'NO_USDC');
-    const amount = parseUnits(args.amount_usdc, 6);
+    const token = resolvePaymentToken(args.chain);
+    if (!token)
+      return fail(`No ERC-20 payment token registered for ${args.chain}`, 'NO_USDC');
+    const amount = parseUnits(args.amount_usdc, token.decimals);
     const uri =
-      `ethereum:${meta.usdc}@${meta.chainId}/transfer` +
+      `ethereum:${token.address}@${meta.chainId}/transfer` +
       `?address=${args.merchant}&uint256=${amount.toString()}`;
     return ok({
       uri,
       chain: args.chain,
       merchant: args.merchant,
       amount_usdc: args.amount_usdc,
+      token_symbol: token.symbol,
       label: args.label,
       memo: args.memo,
     });
@@ -755,3 +795,211 @@ export const morph_passkey_pay = async (): Promise<ToolResult> =>
     'STUB',
     `Track progress at ${MORPH_PASSKEY_TRACKING_URL}`,
   );
+
+// ────────────────────────────────────────────────────────────────────────────
+// SpaceRouter (Spacecoin) handlers — all on creditcoin-mainnet
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a SpaceRouterClient against the dedicated wallet. Single source of
+ * truth so every spacerouter_* handler shares the exact same wiring.
+ */
+async function buildSpaceRouterClient(
+  ctx: ToolContext,
+  opts: {
+    region?: string;
+    ipType?: 'residential' | 'mobile' | 'business' | 'hosting';
+    dryRun?: boolean;
+  } = {},
+): Promise<{ client: SpaceRouterClient; address: `0x${string}` }> {
+  const w = await getSpaceRouterWallet();
+  const cfg = pickSpaceRouterConfig(ctx.env, w.privateKey, opts);
+  return { client: new SpaceRouterClient(cfg, ctx.env), address: w.address };
+}
+
+const failFromSr = (e: unknown): ToolResult => {
+  if (e instanceof SpaceRouterError) return fail(e.message, e.code, e.hint);
+  return fail((e as Error).message);
+};
+
+export const spacerouter_pay = async (
+  args: {
+    url: string;
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    body?: string;
+    region?: string;
+    ip_type?: 'residential' | 'mobile' | 'business' | 'hosting';
+    max_rate_space_per_gb?: string;
+    auto_settle?: boolean;
+    dry_run?: boolean;
+  },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const dry = !!args.dry_run;
+    if (!dry && ctx.testnetMode) {
+      return fail(
+        'creditcoin-mainnet is mainnet — opt in or pass dry_run=true.',
+        'MAINNET_GUARD',
+        'Run `n-payment-skill config set testnetMode false`, fund the dedicated SpaceRouter wallet with SPACE+CTC, or retry with dry_run=true.',
+      );
+    }
+    const { client } = await buildSpaceRouterClient(ctx, {
+      region: args.region,
+      ipType: args.ip_type,
+      dryRun: dry,
+    });
+    try {
+      const res = await client.pay(
+        args.url,
+        {
+          method: args.method ?? 'GET',
+          ...(args.body ? { body: args.body } : {}),
+        },
+        {
+          maxRateSpacePerGb: args.max_rate_space_per_gb
+            ? parseSpaceWei(args.max_rate_space_per_gb)
+            : undefined,
+          autoSettle: args.auto_settle ?? true,
+        },
+      );
+      return ok(res);
+    } catch (e) {
+      return failFromSr(e);
+    }
+  });
+
+export const spacerouter_escrow = async (
+  args: {
+    action:
+      | 'deposit'
+      | 'balance'
+      | 'initiate-withdrawal'
+      | 'execute-withdrawal'
+      | 'cancel-withdrawal'
+      | 'status';
+    amount_space?: string;
+    address?: `0x${string}`;
+    dry_run?: boolean;
+  },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const dry = !!args.dry_run;
+    const writes = new Set([
+      'deposit',
+      'initiate-withdrawal',
+      'execute-withdrawal',
+      'cancel-withdrawal',
+    ]);
+    if (!dry && writes.has(args.action) && ctx.testnetMode) {
+      return fail(
+        'creditcoin-mainnet is mainnet — opt in or pass dry_run=true.',
+        'MAINNET_GUARD',
+        'Run `n-payment-skill config set testnetMode false` and ensure the SpaceRouter wallet has SPACE+CTC before calling on-chain writes.',
+      );
+    }
+    const { client, address } = await buildSpaceRouterClient(ctx, {
+      dryRun: dry,
+    });
+    const target = args.address ?? address;
+    try {
+      switch (args.action) {
+        case 'deposit': {
+          if (!args.amount_space)
+            return fail('amount_space required for deposit', 'MISSING_ARG');
+          const r = await client.depositToEscrow(parseSpaceWei(args.amount_space));
+          return ok({ action: 'deposit', ...r });
+        }
+        case 'balance': {
+          const wei = await client.getEscrowBalance(target);
+          return ok({
+            address: target,
+            balance_wei: wei.toString(),
+            balance_space: formatSpaceWei(wei),
+          });
+        }
+        case 'initiate-withdrawal': {
+          if (!args.amount_space)
+            return fail(
+              'amount_space required for initiate-withdrawal',
+              'MISSING_ARG',
+            );
+          const r = await client.initiateWithdrawal(parseSpaceWei(args.amount_space));
+          return ok({ action: 'initiate-withdrawal', ...r });
+        }
+        case 'execute-withdrawal': {
+          const r = await client.executeWithdrawal();
+          return ok({ action: 'execute-withdrawal', ...r });
+        }
+        case 'cancel-withdrawal': {
+          const r = await client.cancelWithdrawal();
+          return ok({ action: 'cancel-withdrawal', ...r });
+        }
+        case 'status': {
+          const s = await client.getStatus(target);
+          return ok({ address: target, ...s });
+        }
+      }
+    } catch (e) {
+      return failFromSr(e);
+    }
+  });
+
+export const spacerouter_sync_receipts = async (
+  args: { dry_run?: boolean },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const { client } = await buildSpaceRouterClient(ctx, {
+      dryRun: !!args.dry_run,
+    });
+    try {
+      return ok(await client.syncReceipts());
+    } catch (e) {
+      return failFromSr(e);
+    }
+  });
+
+export const spacerouter_admin = async (
+  args: {
+    action: 'create' | 'list' | 'revoke';
+    name?: string;
+    api_key_id?: string;
+    rate_limit_rpm?: number;
+  },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const url = ctx.env.SR_ADMIN_URL;
+    if (!url) {
+      return fail(
+        'SR_ADMIN_URL is not set.',
+        'SPACEROUTER_ADMIN_URL_MISSING',
+        'Export SR_ADMIN_URL pointing at your SpaceRouter coordination/admin API instance.',
+      );
+    }
+    try {
+      const admin = await createSpaceRouterAdmin(url);
+      switch (args.action) {
+        case 'create': {
+          if (!args.name)
+            return fail('name required for create', 'MISSING_ARG');
+          return ok(
+            await admin.createApiKey(args.name, {
+              rateLimitRpm: args.rate_limit_rpm,
+            }),
+          );
+        }
+        case 'list':
+          return ok(await admin.listApiKeys());
+        case 'revoke': {
+          if (!args.api_key_id)
+            return fail('api_key_id required for revoke', 'MISSING_ARG');
+          return ok(await admin.revokeApiKey(args.api_key_id));
+        }
+      }
+    } catch (e) {
+      return failFromSr(e);
+    }
+  });

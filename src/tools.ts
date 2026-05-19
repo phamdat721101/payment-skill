@@ -30,6 +30,7 @@ export const CHAIN_KEYS = [
   'solana-devnet',
   'morph-mainnet',
   'morph-hoodi',
+  'creditcoin-mainnet',
 ] as const;
 
 export type ChainKey = (typeof CHAIN_KEYS)[number];
@@ -358,6 +359,78 @@ export const TOOLS: ReadonlyArray<Tool> = [
       chain: z.enum(['morph-mainnet', 'morph-hoodi']),
     }),
     handler: h.morph_passkey_pay as never,
+  }),
+
+  // ─── SpaceRouter (SpaceCoin) — residential proxy + on-chain SPACE escrow ─
+  def({
+    name: 'spacerouter_pay',
+    description:
+      'Send a paid HTTP request through the SpaceRouter residential-proxy network. Pays in SPACE on Creditcoin via the dedicated wallet at ~/.n-payment/wallets/spacerouter.json. Region/IP-type optional. Returns body + node_id + country.',
+    schema: z.object({
+      url: z.string().url(),
+      method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).default('GET'),
+      body: z.string().optional(),
+      region: z
+        .string()
+        .regex(/^[A-Z]{2}$/, 'ISO 3166-1 alpha-2 country code, e.g. US, KR')
+        .optional(),
+      ip_type: z
+        .enum(['residential', 'mobile', 'business', 'hosting'])
+        .optional(),
+      max_rate_space_per_gb: z
+        .string()
+        .regex(/^\d+(\.\d+)?$/, 'decimal SPACE amount')
+        .optional(),
+      auto_settle: z.boolean().default(true),
+      dry_run: z.boolean().default(false),
+    }),
+    handler: h.spacerouter_pay as never,
+  }),
+
+  def({
+    name: 'spacerouter_escrow',
+    description:
+      'Manage the on-chain SPACE escrow at TokenPaymentEscrow on Creditcoin: deposit | balance | initiate-withdrawal | execute-withdrawal (after 5-day timelock) | cancel-withdrawal | status.',
+    schema: z.object({
+      action: z.enum([
+        'deposit',
+        'balance',
+        'initiate-withdrawal',
+        'execute-withdrawal',
+        'cancel-withdrawal',
+        'status',
+      ]),
+      amount_space: z
+        .string()
+        .regex(/^\d+(\.\d+)?$/, 'decimal SPACE amount, e.g. "10" or "0.5"')
+        .optional(),
+      address: Address.optional(),
+      dry_run: z.boolean().default(false),
+    }),
+    handler: h.spacerouter_escrow as never,
+  }),
+
+  def({
+    name: 'spacerouter_sync_receipts',
+    description:
+      'Push pending Leg-1 (Consumer→Gateway) receipts on-chain so they settle into the SpaceRouter escrow. Returns accepted/rejected UUID arrays + pending count.',
+    schema: z.object({
+      dry_run: z.boolean().default(false),
+    }),
+    handler: h.spacerouter_sync_receipts as never,
+  }),
+
+  def({
+    name: 'spacerouter_admin',
+    description:
+      'Manage SpaceRouter API keys via a SpaceRouter coordination/admin API instance. Advanced — set SR_ADMIN_URL to point at your admin endpoint. Actions: create | list | revoke.',
+    schema: z.object({
+      action: z.enum(['create', 'list', 'revoke']),
+      name: z.string().min(1).optional(),
+      api_key_id: z.string().optional(),
+      rate_limit_rpm: z.number().int().positive().optional(),
+    }),
+    handler: h.spacerouter_admin as never,
   }),
 ];
 

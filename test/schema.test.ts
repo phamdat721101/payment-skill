@@ -8,9 +8,9 @@ import {
 import { TOOLS, TOOL_BY_NAME } from '../src/tools.js';
 
 describe('schema generator', () => {
-  it('exports all 20 tools in OpenAI function-call shape', () => {
+  it('exports all 27 tools in OpenAI function-call shape', () => {
     const out = exportOpenAITools();
-    expect(out).toHaveLength(23);
+    expect(out).toHaveLength(27);
     for (const fn of out) {
       expect(fn.type).toBe('function');
       expect(typeof fn.function.name).toBe('string');
@@ -21,7 +21,7 @@ describe('schema generator', () => {
 
   it('exports MCP tools/list shape with inputSchema', () => {
     const mcp = exportMcpTools();
-    expect(mcp).toHaveLength(23);
+    expect(mcp).toHaveLength(27);
     for (const m of mcp) {
       expect(m.name).toBeTruthy();
       expect(typeof m.inputSchema).toBe('object');
@@ -50,6 +50,6 @@ describe('schema generator', () => {
     const json = JSON.stringify(exportOpenAITools());
     expect(json).toBeTruthy();
     const round = JSON.parse(json);
-    expect(round).toHaveLength(23);
+    expect(round).toHaveLength(27);
   });
 });

@@ -27,6 +27,12 @@ interface ChainMeta {
   chainId: number;
   rpcUrl: string;
   usdc?: Address;
+  /**
+   * Primary ERC-20 payment token when it isn't USDC (e.g. SPACE on Creditcoin).
+   * Handlers prefer this over `usdc` when both are present, and fall back to
+   * USDC defaults (6 decimals) for chains where only `usdc` is set.
+   */
+  paymentToken?: { address: Address; symbol: string; decimals: number };
   /** programmatic faucet: 'circle' | 'tempo' | null */
   faucet?: 'circle' | 'tempo' | null;
   /** click-through faucet URL printed when programmatic isn't available */
@@ -129,6 +135,21 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
     rpcUrl: 'https://rpc-hoodi.morph.network',
     faucet: null,
     manualFaucetUrl: 'https://bridge-hoodi.morph.network',
+  },
+  'creditcoin-mainnet': {
+    name: 'Creditcoin',
+    chainId: 102030,
+    rpcUrl: 'https://mainnet3.creditcoin.network',
+    paymentToken: {
+      address: '0x7ab7C6A935Ab2D1437398790C9C0660af62A80b9',
+      symbol: 'SPACE',
+      decimals: 18,
+    },
+    faucet: null,
+    // SPACE/CTC are not faucet-funded — point users at the canonical token doc
+    // which lists the exchanges where SPACE and CTC are available.
+    manualFaucetUrl:
+      'https://docs.spacecoin.org/usdspace-token/token-overview-and-utility',
   },
 };
 

@@ -115,3 +115,21 @@ describe('Stellar chains', () => {
     expect(m.stellarUsdcIssuer).toBe('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN');
   });
 });
+
+describe('Creditcoin (SpaceCoin) chain', () => {
+  it('registers creditcoin-mainnet with chainId 102030 and SPACE paymentToken (18 decimals)', () => {
+    const m = CHAIN_META['creditcoin-mainnet'];
+    expect(m.chainId).toBe(102030);
+    expect(m.rpcUrl).toBe('https://mainnet3.creditcoin.network');
+    expect(m.paymentToken?.address).toBe('0x7ab7C6A935Ab2D1437398790C9C0660af62A80b9');
+    expect(m.paymentToken?.symbol).toBe('SPACE');
+    expect(m.paymentToken?.decimals).toBe(18);
+    expect(m.usdc).toBeUndefined();
+  });
+
+  it('refuses to drip on creditcoin-mainnet (mainnet) and surfaces the manual URL', async () => {
+    const r = await requestFaucet(ADDR, 'creditcoin-mainnet', vi.fn() as never);
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/mainnet/);
+  });
+});
