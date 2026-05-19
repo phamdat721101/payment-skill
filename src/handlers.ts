@@ -28,6 +28,12 @@ import {
   MORPH_PASSKEY_TRACKING_URL,
   type MorphCreds,
 } from './morph.js';
+import {
+  buildStellarPaymentUri,
+  fetchStellarBalance,
+  isStellarConfigError,
+  pickStellarConfig,
+} from './stellar.js';
 
 // ─── n-payment lazy loader ───────────────────────────────────────────────────
 type NP = typeof import('n-payment');
@@ -191,11 +197,18 @@ export const pay: NonNullable<unknown> = async (
         'Register at https://morph-rails.morph.network/x402 to obtain HMAC credentials.',
       );
     }
+    let stellar: { secretKey: string; channelsApiKey?: string } | undefined;
+    if (chain.startsWith('stellar-')) {
+      const cfg = pickStellarConfig(ctx.env, w.privateKey, chain);
+      if (isStellarConfigError(cfg)) return fail(cfg.error, cfg.code, cfg.hint);
+      stellar = { secretKey: cfg.secretKey, channelsApiKey: cfg.channelsApiKey };
+    }
     const client = createPaymentClient({
       chains: [chain] as never,
       ows: { wallet: w.name, privateKey: w.privateKey } as never,
       goat: goat ?? undefined,
       morph: morph ?? undefined,
+      stellar,
     } as never);
     const init: Record<string, unknown> = { method: args.method ?? 'GET' };
     if (args.body) init.body = args.body;
@@ -212,6 +225,17 @@ export const check_balance = async (
   wrap(async () => {
     const chain = args.chain ?? ctx.defaultChain;
     const w = await getWallet(ctx);
+    if (chain.startsWith('stellar-')) {
+      const cfg = pickStellarConfig(ctx.env, w.privateKey, chain);
+      if (isStellarConfigError(cfg)) return fail(cfg.error, cfg.code, cfg.hint);
+      const bal = await fetchStellarBalance(cfg.publicKey, chain);
+      return ok({
+        address: cfg.publicKey,
+        chain,
+        native_xlm: bal.native,
+        usdc: bal.usdc,
+      });
+    }
     const meta = CHAIN_META[chain];
     const pub = createPublicClient({ chain: viemChain(chain), transport: http(meta.rpcUrl) });
     const native = await pub.getBalance({ address: w.address });
@@ -434,6 +458,26 @@ export const generate_qr = async (args: {
   memo?: string;
 }): Promise<ToolResult> =>
   wrap(async () => {
+    if (args.chain.startsWith('stellar-')) {
+      const meta = CHAIN_META[args.chain];
+      if (!meta.stellarUsdcIssuer)
+        return fail(`No USDC issuer registered for ${args.chain}`, 'NO_USDC');
+      const uri = buildStellarPaymentUri({
+        destination: args.merchant as unknown as string,
+        amount: args.amount_usdc,
+        assetCode: 'USDC',
+        assetIssuer: meta.stellarUsdcIssuer,
+        memo: args.memo,
+      });
+      return ok({
+        uri,
+        chain: args.chain,
+        merchant: args.merchant,
+        amount_usdc: args.amount_usdc,
+        label: args.label,
+        memo: args.memo,
+      });
+    }
     const meta = CHAIN_META[args.chain];
     if (!meta.usdc) return fail(`No USDC token registered for ${args.chain}`, 'NO_USDC');
     const amount = parseUnits(args.amount_usdc, 6);

@@ -200,10 +200,12 @@ export const TOOLS: ReadonlyArray<Tool> = [
   def({
     name: 'generate_qr',
     description:
-      'Build an ERC-681 USDC payment URI scannable by any wallet. Returns the URI plus an SVG.',
+      'Build an ERC-681 (EVM) or SEP-7 (Stellar) USDC payment URI scannable by any wallet. Returns the URI.',
     schema: z.object({
-      merchant: Address,
-      amount_usdc: z.string().regex(/^\d+(\.\d{1,6})?$/, 'use a decimal like "5.00"'),
+      merchant: z
+        .string()
+        .regex(/^(0x[a-fA-F0-9]{40}|G[A-Z2-7]{55})$/, 'EVM 0x… or Stellar G… address'),
+      amount_usdc: z.string().regex(/^\d+(\.\d{1,7})?$/, 'use a decimal like "5.00"'),
       chain: Chain,
       label: z.string().optional(),
       memo: z.string().optional(),

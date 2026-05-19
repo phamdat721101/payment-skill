@@ -31,6 +31,10 @@ interface ChainMeta {
   faucet?: 'circle' | 'tempo' | null;
   /** click-through faucet URL printed when programmatic isn't available */
   manualFaucetUrl?: string;
+  /** Stellar Asset Contract ID for USDC (SEP-41 token contract). Stellar-only. */
+  stellarUsdcContract?: string;
+  /** Stellar issuer account (G…) for USDC. Stellar-only. */
+  stellarUsdcIssuer?: string;
 }
 
 export const CHAIN_META: Record<ChainKey, ChainMeta> = {
@@ -92,11 +96,15 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
     chainId: 0,
     rpcUrl: 'https://horizon-testnet.stellar.org',
     manualFaucetUrl: 'https://laboratory.stellar.org/#account-creator',
+    stellarUsdcContract: 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA',
+    stellarUsdcIssuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
   },
   'stellar-mainnet': {
     name: 'Stellar',
     chainId: 0,
     rpcUrl: 'https://horizon.stellar.org',
+    stellarUsdcContract: 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75',
+    stellarUsdcIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
   },
   'solana-mainnet': {
     name: 'Solana',

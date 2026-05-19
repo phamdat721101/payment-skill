@@ -100,3 +100,18 @@ describe('Morph chains', () => {
     expect(r.manualUrl).toContain('bridge-hoodi.morph.network');
   });
 });
+
+describe('Stellar chains', () => {
+  it('registers stellar-testnet with USDC SAC + issuer', () => {
+    const m = CHAIN_META['stellar-testnet'];
+    expect(m.stellarUsdcContract).toMatch(/^C[A-Z2-7]{55}$/);
+    expect(m.stellarUsdcIssuer).toMatch(/^G[A-Z2-7]{55}$/);
+    expect(m.rpcUrl).toContain('horizon-testnet.stellar.org');
+  });
+
+  it('registers stellar-mainnet with USDC SAC + issuer', () => {
+    const m = CHAIN_META['stellar-mainnet'];
+    expect(m.stellarUsdcContract).toBe('CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75');
+    expect(m.stellarUsdcIssuer).toBe('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN');
+  });
+});

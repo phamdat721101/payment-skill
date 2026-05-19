@@ -416,6 +416,8 @@ n-payment-skill config set telemetry off         # default
 |---|---|---|
 | `GOAT_API_KEY` / `GOAT_API_SECRET` / `GOAT_MERCHANT_ID` | `pay` (GOAT chains) | x402 facilitator credentials |
 | `MORPH_ACCESS_KEY` / `MORPH_ACCESS_SECRET` | `pay` (Morph chains) | HMAC credentials for the Morph x402 Facilitator (register at https://morph-rails.morph.network/x402) |
+| `STELLAR_SECRET_KEY` | `pay` / `check_balance` (Stellar chains) | Stellar `S…` secret key. If unset, derived deterministically from the existing wallet file. |
+| `STELLAR_OZ_API_KEY` | `pay` (Stellar mainnet) | OpenZeppelin Relayer x402 API key (generate at https://channels.openzeppelin.com/gen). Testnet uses Coinbase free facilitator. |
 | `NPAYMENT_ESCROW_CONTRACT` | `create_escrow` | ERC-8183 contract address |
 | `NPAYMENT_BTC_VAULT` | `btc_lend` | BTC vault contract (GOAT Network) |
 
@@ -457,8 +459,8 @@ payment-skill/
 │   ├── config.ts         # ~/.n-payment/config.json
 │   ├── faucet.ts         # CHAIN_META + Circle/Tempo faucet + doctor
 │   └── index.ts
-└── test/                 # 74 vitest tests (tools, schema, wallet, faucet,
-                          #   skill, mcp, hosts, exports, morph)
+└── test/                 # 92 vitest tests (tools, schema, wallet, faucet,
+                          #   skill, mcp, hosts, exports, morph, stellar)
 ```
 
 ---
@@ -474,6 +476,7 @@ payment-skill/
 | `MORPH_AUTH` | Re-check key/secret + clock skew (timestamp must be within ±30s of server) |
 | `MORPH_RATE_LIMITED` | Exceeded 10 QPS per Access Key; backoff and retry |
 | `REFERENCE_KEY_NOT_FOUND` | Reference Key launches with Morph mainnet (April 2026); 404 expected on Hoodi |
+| `STELLAR_OZ_KEY_MISSING` | Stellar mainnet needs `STELLAR_OZ_API_KEY`. Generate at https://channels.openzeppelin.com/gen |
 | `INSUFFICIENT_FUNDS` | `n-payment-skill faucet --chain base-sepolia` |
 | `RPC unreachable` | Check internet / corporate proxy; retry `n-payment-skill doctor` |
 | `Circle faucet 429` | Rate-limited; visit `https://faucet.circle.com` and drip manually |
@@ -491,7 +494,7 @@ Run `n-payment-skill doctor` any time for a colored health report.
 git clone https://github.com/phamdat721101/payment-skill
 cd n-payment-skill
 npm install
-npm test          # 74 tests
+npm test          # 92 tests
 npm run build
 node dist/cli.js --version
 ```
