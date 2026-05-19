@@ -14,11 +14,13 @@
 npx n-payment-skill
 ```
 
+📖 **3-minute walkthrough:** [docs/article.md](./docs/article.md) — build a paid endpoint and pay it from another script in one prompt.
+
 ---
 
 ## What you get
 
-20 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
+23 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
 Windsurf, Continue, GitHub Copilot, generic MCP, OpenAI / ChatGPT,
 LangChain, and LlamaIndex** — Node-native, with a 15-line Python snippet
 for the rest (no separate Python package needed).
@@ -45,6 +47,9 @@ for the rest (no separate Python package needed).
 | 18 | `stream_pay` | Per-second streaming USDC payments. |
 | 19 | `ap2_mandate` | Sign / verify AP2 mandates and intents. |
 | 20 | `policy_check` | Evaluate sends against the PolicyEngine. |
+| 21 | `morph_reference_key` | Attach / query a Morph Reference Key (merchant order ID linked on-chain). |
+| 22 | `morph_altfee_pay` | STUB: pay gas in USDC / USDT0 / BGB on Morph (awaiting SDK upstream). |
+| 23 | `morph_passkey_pay` | STUB: passwordless WebAuthn payment on Morph (awaiting SDK upstream). |
 
 ### Host coverage
 
@@ -410,6 +415,7 @@ n-payment-skill config set telemetry off         # default
 | Env var | Used by | Purpose |
 |---|---|---|
 | `GOAT_API_KEY` / `GOAT_API_SECRET` / `GOAT_MERCHANT_ID` | `pay` (GOAT chains) | x402 facilitator credentials |
+| `MORPH_ACCESS_KEY` / `MORPH_ACCESS_SECRET` | `pay` (Morph chains) | HMAC credentials for the Morph x402 Facilitator (register at https://morph-rails.morph.network/x402) |
 | `NPAYMENT_ESCROW_CONTRACT` | `create_escrow` | ERC-8183 contract address |
 | `NPAYMENT_BTC_VAULT` | `btc_lend` | BTC vault contract (GOAT Network) |
 
@@ -451,8 +457,8 @@ payment-skill/
 │   ├── config.ts         # ~/.n-payment/config.json
 │   ├── faucet.ts         # CHAIN_META + Circle/Tempo faucet + doctor
 │   └── index.ts
-└── test/                 # 56 vitest tests (tools, schema, wallet, faucet,
-                          #   skill, mcp, hosts, exports)
+└── test/                 # 74 vitest tests (tools, schema, wallet, faucet,
+                          #   skill, mcp, hosts, exports, morph)
 ```
 
 ---
@@ -464,6 +470,10 @@ payment-skill/
 | `n-payment is not installed` | `npm i n-payment` (peer dep) |
 | `MAINNET_GUARD` | `n-payment-skill config set testnetMode false` |
 | `GOAT_CREDS_MISSING` | `export GOAT_API_KEY=… GOAT_API_SECRET=… GOAT_MERCHANT_ID=…` |
+| `MORPH_CREDS_MISSING` | `export MORPH_ACCESS_KEY=… MORPH_ACCESS_SECRET=…` (register at https://morph-rails.morph.network/x402) |
+| `MORPH_AUTH` | Re-check key/secret + clock skew (timestamp must be within ±30s of server) |
+| `MORPH_RATE_LIMITED` | Exceeded 10 QPS per Access Key; backoff and retry |
+| `REFERENCE_KEY_NOT_FOUND` | Reference Key launches with Morph mainnet (April 2026); 404 expected on Hoodi |
 | `INSUFFICIENT_FUNDS` | `n-payment-skill faucet --chain base-sepolia` |
 | `RPC unreachable` | Check internet / corporate proxy; retry `n-payment-skill doctor` |
 | `Circle faucet 429` | Rate-limited; visit `https://faucet.circle.com` and drip manually |
@@ -481,7 +491,7 @@ Run `n-payment-skill doctor` any time for a colored health report.
 git clone https://github.com/phamdat721101/payment-skill
 cd n-payment-skill
 npm install
-npm test          # 56 tests
+npm test          # 74 tests
 npm run build
 node dist/cli.js --version
 ```

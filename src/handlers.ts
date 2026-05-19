@@ -20,6 +20,14 @@ import {
 import type { ChainKey, ToolContext, ToolResult } from './tools.js';
 import { ensureWallet, type WalletRecord } from './wallet.js';
 import { CHAIN_META } from './faucet.js';
+import {
+  attachReferenceKey,
+  queryReferenceKey,
+  ReferenceKeyNotFound,
+  MORPH_ALTFEE_TRACKING_URL,
+  MORPH_PASSKEY_TRACKING_URL,
+  type MorphCreds,
+} from './morph.js';
 
 // ─── n-payment lazy loader ───────────────────────────────────────────────────
 type NP = typeof import('n-payment');
@@ -101,6 +109,12 @@ function pickGoatCreds(env: NodeJS.ProcessEnv): {
   };
 }
 
+function pickMorphCreds(env: NodeJS.ProcessEnv): MorphCreds | null {
+  const { MORPH_ACCESS_KEY, MORPH_ACCESS_SECRET } = env;
+  if (!MORPH_ACCESS_KEY || !MORPH_ACCESS_SECRET) return null;
+  return { accessKey: MORPH_ACCESS_KEY, secretKey: MORPH_ACCESS_SECRET };
+}
+
 // ─── Stateful singletons (per-process) ───────────────────────────────────────
 let _delMgr: any = null;
 let _sessMgr: any = null;
@@ -169,10 +183,19 @@ export const pay: NonNullable<unknown> = async (
         'Set the three env vars or switch to base-sepolia for testing.',
       );
     }
+    const morph = chain.startsWith('morph-') ? pickMorphCreds(ctx.env) : null;
+    if (chain.startsWith('morph-') && !morph) {
+      return fail(
+        'Morph chain requires MORPH_ACCESS_KEY / MORPH_ACCESS_SECRET env vars.',
+        'MORPH_CREDS_MISSING',
+        'Register at https://morph-rails.morph.network/x402 to obtain HMAC credentials.',
+      );
+    }
     const client = createPaymentClient({
       chains: [chain] as never,
       ows: { wallet: w.name, privateKey: w.privateKey } as never,
       goat: goat ?? undefined,
+      morph: morph ?? undefined,
     } as never);
     const init: Record<string, unknown> = { method: args.method ?? 'GET' };
     if (args.body) init.body = args.body;
@@ -647,3 +670,44 @@ export const policy_check = async (
     });
     return ok(decision);
   });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Morph-specific handlers
+// ────────────────────────────────────────────────────────────────────────────
+
+export const morph_reference_key = async (args: {
+  action: 'attach' | 'query';
+  reference: string;
+}): Promise<ToolResult> =>
+  wrap(async () => {
+    if (args.action === 'attach') {
+      return ok({ calldata: attachReferenceKey(args.reference) });
+    }
+    try {
+      const record = await queryReferenceKey(args.reference);
+      return ok(record);
+    } catch (e) {
+      if (e instanceof ReferenceKeyNotFound) {
+        return fail(
+          e.message,
+          e.code,
+          'Reference Key requires Morph mainnet (April 2026+). On Hoodi testnet the API may return 404.',
+        );
+      }
+      throw e;
+    }
+  });
+
+export const morph_altfee_pay = async (): Promise<ToolResult> =>
+  fail(
+    'AltFee Type-0x7F gas-in-USDC transactions are pending n-payment SDK upstream support.',
+    'STUB',
+    `Track progress at ${MORPH_ALTFEE_TRACKING_URL}`,
+  );
+
+export const morph_passkey_pay = async (): Promise<ToolResult> =>
+  fail(
+    'Morph Passkey payments are pending n-payment SDK upstream support.',
+    'STUB',
+    `Track progress at ${MORPH_PASSKEY_TRACKING_URL}`,
+  );

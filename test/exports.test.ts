@@ -8,9 +8,9 @@ import {
 import { TOOL_NAMES } from '../src/tools.ts';
 
 describe('exports', () => {
-  it('openai export has 20 function-call entries', () => {
+  it('openai export has 23 function-call entries', () => {
     const tools = openaiTools() as Array<{ type: string; function: { name: string } }>;
-    expect(tools).toHaveLength(20);
+    expect(tools).toHaveLength(23);
     expect(tools.every((t) => t.type === 'function')).toBe(true);
   });
 

@@ -28,6 +28,8 @@ export const CHAIN_KEYS = [
   'stellar-mainnet',
   'solana-mainnet',
   'solana-devnet',
+  'morph-mainnet',
+  'morph-hoodi',
 ] as const;
 
 export type ChainKey = (typeof CHAIN_KEYS)[number];
@@ -317,6 +319,43 @@ export const TOOLS: ReadonlyArray<Tool> = [
       reason: z.string().optional(),
     }),
     handler: h.policy_check as never,
+  }),
+
+  def({
+    name: 'morph_reference_key',
+    description:
+      'Attach or query a Morph Reference Key — a merchant-defined order ID linked on-chain. attach returns calldata bytes to embed in the next tx; query reads the linked tx record from the Morph Rails API.',
+    schema: z.object({
+      action: z.enum(['attach', 'query']),
+      reference: z.string().min(1).max(32),
+    }),
+    handler: h.morph_reference_key as never,
+  }),
+
+  def({
+    name: 'morph_altfee_pay',
+    description:
+      'STUB: Pay gas in USDC / USDT0 / BGB on Morph via AltFee (Type-0x7F transaction). Awaiting n-payment SDK upstream support.',
+    schema: z.object({
+      to: Address,
+      amount_usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
+      gas_token: z.enum(['usdc', 'usdt0', 'bgb']).default('usdc'),
+      chain: z.enum(['morph-mainnet', 'morph-hoodi']),
+    }),
+    handler: h.morph_altfee_pay as never,
+  }),
+
+  def({
+    name: 'morph_passkey_pay',
+    description:
+      'STUB: Passwordless onchain payment on Morph using a registered Passkey (WebAuthn). Awaiting n-payment SDK upstream support.',
+    schema: z.object({
+      recipient: Address,
+      amount_usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
+      passkey_credential_id: z.string().optional(),
+      chain: z.enum(['morph-mainnet', 'morph-hoodi']),
+    }),
+    handler: h.morph_passkey_pay as never,
   }),
 ];
 

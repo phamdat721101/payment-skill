@@ -109,10 +109,23 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
     rpcUrl: 'https://api.devnet.solana.com',
     manualFaucetUrl: 'https://faucet.solana.com',
   },
+  'morph-mainnet': {
+    name: 'Morph Mainnet',
+    chainId: 2818,
+    rpcUrl: 'https://rpc-quicknode.morph.network',
+    usdc: '0xe34c91815d7fc18A9e2148bcD4241d0a5848b693',
+  },
+  'morph-hoodi': {
+    name: 'Morph Hoodi Testnet',
+    chainId: 2910,
+    rpcUrl: 'https://rpc-hoodi.morph.network',
+    faucet: null,
+    manualFaucetUrl: 'https://bridge-hoodi.morph.network',
+  },
 };
 
 export const isTestnetChain = (chain: ChainKey): boolean =>
-  /-(testnet|sepolia|devnet)$/.test(chain);
+  /-(testnet|sepolia|devnet|hoodi)$/.test(chain);
 
 // ─── Faucet ──────────────────────────────────────────────────────────────────
 export interface FaucetResult {

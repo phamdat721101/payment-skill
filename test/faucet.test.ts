@@ -15,11 +15,13 @@ describe('faucet', () => {
     expect(r.message).toMatch(/mainnet/);
   });
 
-  it('isTestnetChain catches sepolia / testnet / devnet suffixes', () => {
+  it('isTestnetChain catches sepolia / testnet / devnet / hoodi suffixes', () => {
     expect(isTestnetChain('base-sepolia')).toBe(true);
     expect(isTestnetChain('goat-testnet')).toBe(true);
     expect(isTestnetChain('solana-devnet')).toBe(true);
+    expect(isTestnetChain('morph-hoodi')).toBe(true);
     expect(isTestnetChain('base-mainnet')).toBe(false);
+    expect(isTestnetChain('morph-mainnet')).toBe(false);
   });
 
   it('calls the Circle endpoint for base-sepolia and surfaces the response', async () => {
@@ -74,5 +76,27 @@ describe('doctor', () => {
       (CHAIN_META as Record<string, { rpcUrl: string }>)['goat-testnet']!.rpcUrl =
         original;
     }
+  });
+});
+
+describe('Morph chains', () => {
+  it('registers morph-mainnet with chainId 2818 and a USDC contract', () => {
+    const m = CHAIN_META['morph-mainnet'];
+    expect(m.chainId).toBe(2818);
+    expect(m.usdc).toBe('0xe34c91815d7fc18A9e2148bcD4241d0a5848b693');
+    expect(m.rpcUrl).toContain('morph.network');
+  });
+
+  it('registers morph-hoodi as a testnet with a manual faucet URL', () => {
+    const m = CHAIN_META['morph-hoodi'];
+    expect(m.chainId).toBe(2910);
+    expect(m.faucet).toBeNull();
+    expect(m.manualFaucetUrl).toContain('bridge-hoodi.morph.network');
+  });
+
+  it('refuses to drip on morph-hoodi (no programmatic faucet) but returns the bridge URL', async () => {
+    const r = await requestFaucet(ADDR, 'morph-hoodi', vi.fn() as never);
+    expect(r.programmatic).toBe(false);
+    expect(r.manualUrl).toContain('bridge-hoodi.morph.network');
   });
 });
