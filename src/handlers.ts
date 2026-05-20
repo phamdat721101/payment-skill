@@ -202,6 +202,9 @@ export const pay: NonNullable<unknown> = async (
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
     body?: string;
     max_price_micros?: number;
+    proxy?: 'spacerouter' | 'auto' | 'none';
+    reference_key?: string;
+    region?: string;
   },
   ctx: ToolContext,
 ): Promise<ToolResult> =>
@@ -242,8 +245,14 @@ export const pay: NonNullable<unknown> = async (
     } as never);
     const init: Record<string, unknown> = { method: args.method ?? 'GET' };
     if (args.body) init.body = args.body;
-    const res = await (client as { fetchWithPayment: (u: string, i?: unknown) => Promise<Response> })
-      .fetchWithPayment(args.url, init);
+    // v0.11+ options: proxy, referenceKey, region
+    const opts: Record<string, unknown> = {};
+    if (args.proxy) opts.proxy = args.proxy;
+    if (args.reference_key) opts.referenceKey = args.reference_key;
+    if (args.region) opts.region = args.region;
+    const hasOpts = Object.keys(opts).length > 0;
+    const res = await (client as { fetchWithPayment: (u: string, i?: unknown, o?: unknown) => Promise<Response> })
+      .fetchWithPayment(args.url, init, hasOpts ? opts : undefined);
     const text = await res.text();
     return ok({ status: res.status, body: text.slice(0, 4000) });
   });
@@ -376,27 +385,26 @@ export const negotiate = async (args: {
   escrow_threshold_micros?: number;
 }): Promise<ToolResult> =>
   wrap(async () => {
-    // Pure-logic negotiator — kept inline so this tool works even without
-    // the n-payment SDK installed (mirrors n-payment v0.8 PaymentNegotiator).
-    const creditThreshold = args.credit_threshold ?? 80;
-    const escrowThreshold = args.escrow_threshold_micros ?? 50_000;
-    const price = args.price_micros;
-    const rep = args.caller_reputation;
-    if (rep >= creditThreshold) {
-      return ok({
-        terms: 'credit',
-        price,
-        reason: `Reputation ${rep} >= credit threshold`,
+    // Use SDK PaymentNegotiator when available (v0.5+)
+    try {
+      const { PaymentNegotiator } = await np();
+      const neg = new PaymentNegotiator({
+        creditThreshold: args.credit_threshold ?? 80,
+        escrowThreshold: args.escrow_threshold_micros ?? 50_000,
       });
+      return ok(neg.negotiate(args.price_micros, args.caller_reputation));
+    } catch {
+      // Fallback inline logic when SDK not installed
+      const creditThreshold = args.credit_threshold ?? 80;
+      const escrowThreshold = args.escrow_threshold_micros ?? 50_000;
+      if (args.caller_reputation >= creditThreshold) {
+        return ok({ terms: 'credit', price: args.price_micros, reason: `Reputation ${args.caller_reputation} >= credit threshold` });
+      }
+      if (args.price_micros >= escrowThreshold && args.caller_reputation < creditThreshold) {
+        return ok({ terms: 'escrow', price: args.price_micros, reason: `High value ${args.price_micros} with reputation ${args.caller_reputation}` });
+      }
+      return ok({ terms: 'direct', price: args.price_micros, reason: 'Standard direct payment' });
     }
-    if (price >= escrowThreshold && rep < creditThreshold) {
-      return ok({
-        terms: 'escrow',
-        price,
-        reason: `High value ${price} with reputation ${rep}`,
-      });
-    }
-    return ok({ terms: 'direct', price, reason: 'Standard direct payment' });
   });
 
 export const create_session = async (
@@ -740,8 +748,16 @@ export const policy_check = async (
 ): Promise<ToolResult> =>
   wrap(async () => {
     const { PolicyEngine, AuditLog, SpendingGuard } = await np();
-    // Default deny-nothing policy when user hasn't configured rules.
-    const engine = new PolicyEngine([]);
+    // v0.12: build config from env vars for real amount enforcement
+    const policyConfig: Record<string, unknown> = {};
+    if (ctx.env.NPAYMENT_MAX_PER_TX) policyConfig.maxPerTransaction = BigInt(ctx.env.NPAYMENT_MAX_PER_TX);
+    if (ctx.env.NPAYMENT_MAX_PER_HOUR) policyConfig.maxPerHour = BigInt(ctx.env.NPAYMENT_MAX_PER_HOUR);
+    if (ctx.env.NPAYMENT_MAX_PER_DAY) policyConfig.maxPerDay = BigInt(ctx.env.NPAYMENT_MAX_PER_DAY);
+    if (ctx.env.NPAYMENT_BLOCKLIST) policyConfig.blocklist = ctx.env.NPAYMENT_BLOCKLIST.split(',');
+    if (ctx.env.NPAYMENT_TRUSTED_FACILITATORS) policyConfig.trustedFacilitators = ctx.env.NPAYMENT_TRUSTED_FACILITATORS.split(',');
+    const engine = Object.keys(policyConfig).length > 0
+      ? PolicyEngine.fromConfig(policyConfig)
+      : new PolicyEngine([]);
     const guard = new SpendingGuard(engine, new AuditLog());
     const decision = await (guard as {
       evaluate: (req: unknown) => Promise<unknown>;
@@ -753,6 +769,264 @@ export const policy_check = async (
       callerWallet: ctx.walletName,
     });
     return ok(decision);
+  });
+
+// ────────────────────────────────────────────────────────────────────────────
+// XRPL handlers
+// ────────────────────────────────────────────────────────────────────────────
+
+function pickXrplSeed(env: NodeJS.ProcessEnv): string | null {
+  return env.XRPL_SEED ?? null;
+}
+
+async function getXrplClient(chain: 'xrpl-testnet' | 'xrpl-mainnet', env: NodeJS.ProcessEnv) {
+  const seed = pickXrplSeed(env);
+  if (!seed) throw Object.assign(new Error('XRPL_SEED env var required.'), { code: 'XRPL_SEED_MISSING' });
+  const { createXrplClient } = await np();
+  return createXrplClient({ seed, network: chain === 'xrpl-mainnet' ? 'mainnet' : 'testnet' });
+}
+
+export const xrpl_pay = async (
+  args: { destination: string; amount: string; chain: 'xrpl-testnet' | 'xrpl-mainnet' },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const guard = guardMainnet(args.chain, ctx);
+    if (guard) return guard;
+    const client = await getXrplClient(args.chain, ctx.env);
+    try {
+      const r = await client.sendRLUSD(args.destination, args.amount);
+      return ok(r);
+    } finally { await client.disconnect(); }
+  });
+
+export const xrpl_balance = async (
+  args: { address?: string; chain: 'xrpl-testnet' | 'xrpl-mainnet' },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const client = await getXrplClient(args.chain, ctx.env);
+    try {
+      const addr = args.address ?? await client.getAddress();
+      const balance = await client.getBalance(addr);
+      return ok({ address: addr, chain: args.chain, rlusd: balance });
+    } finally { await client.disconnect(); }
+  });
+
+export const xrpl_vault = async (
+  args: { action: string; vault_id?: string; amount?: string; shares?: string; chain: 'xrpl-testnet' | 'xrpl-mainnet' },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const guard = guardMainnet(args.chain, ctx);
+    if (guard) return guard;
+    const client = await getXrplClient(args.chain, ctx.env);
+    try {
+      const v = client.vault;
+      switch (args.action) {
+        case 'create': return ok(await v.createVault());
+        case 'deposit': {
+          if (!args.vault_id || !args.amount) return fail('vault_id and amount required', 'MISSING_ARG');
+          return ok(await v.deposit(args.vault_id, args.amount));
+        }
+        case 'withdraw': {
+          if (!args.vault_id) return fail('vault_id required', 'MISSING_ARG');
+          return ok(await v.withdraw(args.vault_id, { amount: args.amount, shares: args.shares }));
+        }
+        case 'info': {
+          if (!args.vault_id) return fail('vault_id required', 'MISSING_ARG');
+          return ok(await v.getVaultInfo(args.vault_id));
+        }
+        case 'exchange-rate': {
+          if (!args.vault_id) return fail('vault_id required', 'MISSING_ARG');
+          return ok(await v.getExchangeRate(args.vault_id));
+        }
+        default: return fail(`Unknown action: ${args.action}`);
+      }
+    } finally { await client.disconnect(); }
+  });
+
+export const xrpl_oracle = async (
+  args: { asset: string; chain: 'xrpl-testnet' | 'xrpl-mainnet' },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const client = await getXrplClient(args.chain, ctx.env);
+    try {
+      return ok(await client.oracle.getPrice(args.asset));
+    } finally { await client.disconnect(); }
+  });
+
+export const xrpl_trust_line = async (
+  args: { chain: 'xrpl-testnet' | 'xrpl-mainnet' },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const guard = guardMainnet(args.chain, ctx);
+    if (guard) return guard;
+    const client = await getXrplClient(args.chain, ctx.env);
+    try {
+      const hash = await client.ensureTrustLine();
+      return ok({ hash, existed: hash === null });
+    } finally { await client.disconnect(); }
+  });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Circle Gateway nanopayments
+// ────────────────────────────────────────────────────────────────────────────
+
+export const circle_nanopay = async (
+  args: { url: string; method?: string; body?: string; chain?: ChainKey },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const apiKey = ctx.env.CIRCLE_API_KEY;
+    const walletId = ctx.env.CIRCLE_WALLET_ID;
+    if (!apiKey) return fail('CIRCLE_API_KEY env var required.', 'CIRCLE_KEY_MISSING');
+    const chain = args.chain ?? ctx.defaultChain;
+    const guard = guardMainnet(chain, ctx);
+    if (guard) return guard;
+    const w = await getWallet(ctx);
+    const { createPaymentClient } = await np();
+    const client = createPaymentClient({
+      chains: [chain] as never,
+      ows: { wallet: w.name, privateKey: w.privateKey } as never,
+      circle: { apiKey, environment: ctx.testnetMode ? 'sandbox' : 'production', walletId },
+    } as never);
+    const init: Record<string, unknown> = { method: args.method ?? 'GET' };
+    if (args.body) init.body = args.body;
+    const res = await (client as any).fetchWithPayment(args.url, init);
+    return ok({ status: res.status, body: (await res.text()).slice(0, 4000) });
+  });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Stellar Trustless Work escrow
+// ────────────────────────────────────────────────────────────────────────────
+
+const _stellarJobs = new Map<string, unknown>();
+
+export const stellar_escrow = async (
+  args: { action: string; job_id?: string; milestone_index?: number; provider?: string; amount?: string; title?: string; milestones?: { description: string }[]; chain: 'stellar-testnet' | 'stellar-mainnet' },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const w = await getWallet(ctx);
+    const cfg = pickStellarConfig(ctx.env, w.privateKey, args.chain);
+    if (isStellarConfigError(cfg)) return fail(cfg.error, cfg.code, cfg.hint);
+    const { TrustlessEscrowManager, StellarWallet } = await np();
+    const wallet = new StellarWallet({ secretKey: cfg.secretKey });
+    const mgr = new TrustlessEscrowManager(wallet, { chain: args.chain } as never);
+    switch (args.action) {
+      case 'create': {
+        if (!args.provider || !args.amount || !args.title || !args.milestones)
+          return fail('create requires provider, amount, title, milestones', 'MISSING_ARG');
+        const job = await (mgr as any).createJob({ provider: args.provider, amount: args.amount, title: args.title, milestones: args.milestones });
+        _stellarJobs.set(job.id, job);
+        return ok(job);
+      }
+      case 'fund': {
+        if (!args.job_id) return fail('job_id required', 'MISSING_ARG');
+        return ok(await (mgr as any).fundJob(args.job_id));
+      }
+      case 'submit-milestone': {
+        if (!args.job_id || args.milestone_index == null) return fail('job_id and milestone_index required', 'MISSING_ARG');
+        return ok(await (mgr as any).submitMilestone(args.job_id, args.milestone_index));
+      }
+      case 'approve': {
+        if (!args.job_id || args.milestone_index == null) return fail('job_id and milestone_index required', 'MISSING_ARG');
+        return ok(await (mgr as any).approveAndRelease(args.job_id, args.milestone_index));
+      }
+      case 'release': {
+        if (!args.job_id || args.milestone_index == null) return fail('job_id and milestone_index required', 'MISSING_ARG');
+        return ok(await (mgr as any).approveAndRelease(args.job_id, args.milestone_index));
+      }
+      case 'dispute': {
+        if (!args.job_id) return fail('job_id required', 'MISSING_ARG');
+        return ok(await (mgr as any).dispute(args.job_id));
+      }
+      case 'status': {
+        if (!args.job_id) return fail('job_id required', 'MISSING_ARG');
+        return ok(_stellarJobs.get(args.job_id) ?? { error: 'Job not in local cache' });
+      }
+      default: return fail(`Unknown action: ${args.action}`);
+    }
+  });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Agent Card (A2A)
+// ────────────────────────────────────────────────────────────────────────────
+
+export const agent_card = async (
+  args: { action: 'generate' | 'read'; url?: string; name?: string; description?: string; pay_to?: string; chain?: ChainKey; skills?: { name: string; description: string; price: number }[] },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    if (args.action === 'read') {
+      if (!args.url) return fail('url required for read', 'MISSING_ARG');
+      const target = args.url.replace(/\/+$/, '') + '/.well-known/agent.json';
+      const res = await fetch(target);
+      if (!res.ok) return fail(`Agent card fetch returned ${res.status}`, 'HTTP_ERROR');
+      return ok(await res.json());
+    }
+    // generate
+    const { AgentCard } = await np();
+    const card = new AgentCard({
+      name: args.name ?? 'Agent',
+      description: args.description ?? '',
+      url: args.url ?? 'https://localhost',
+      skills: (args.skills ?? []).map(s => ({ ...s, pricingMode: 'per-call' as const, inputSchema: {} })),
+      chains: [args.chain ?? ctx.defaultChain],
+      protocols: ['x402', 'a2a'],
+      payTo: args.pay_to ?? '0x0000000000000000000000000000000000000000',
+    } as never);
+    return ok((card as any).toJSON());
+  });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Permit2 gasless approval
+// ────────────────────────────────────────────────────────────────────────────
+
+export const permit2_approve = async (
+  args: { token: string; amount: string; spender: string; chain: ChainKey; deadline?: number },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const guard = guardMainnet(args.chain, ctx);
+    if (guard) return guard;
+    const { Permit2Signer } = await np();
+    const w = await getWallet(ctx);
+    const signer = new Permit2Signer(w.privateKey as `0x${string}`, CHAIN_META[args.chain].chainId);
+    const params = {
+      token: args.token,
+      amount: BigInt(args.amount),
+      spender: args.spender,
+      nonce: BigInt(Date.now()),
+      deadline: args.deadline ?? Math.floor(Date.now() / 1000) + 3600,
+    };
+    const sig = await (signer as any).sign(params);
+    return ok({ ...params, amount: params.amount.toString(), nonce: params.nonce.toString(), signature: sig });
+  });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Direct ERC-20 transfer
+// ────────────────────────────────────────────────────────────────────────────
+
+export const direct_transfer = async (
+  args: { to: string; token_address: string; amount: string; chain: ChainKey },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const guard = guardMainnet(args.chain, ctx);
+    if (guard) return guard;
+    const w = await getWallet(ctx);
+    const { ViemTransactor } = await np();
+    const meta = CHAIN_META[args.chain];
+    const transactor = new ViemTransactor(
+      { chainId: meta.chainId, name: meta.name, rpcUrl: meta.rpcUrl, protocols: [], tokens: {} } as never,
+      w.privateKey as `0x${string}`,
+    );
+    const r = await transactor.transferERC20(args.to, args.token_address, BigInt(args.amount));
+    return ok({ txHash: r.txHash, blockNumber: r.blockNumber.toString() });
   });
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -87,15 +87,15 @@ describe('Morph chains', () => {
     expect(m.rpcUrl).toContain('morph.network');
   });
 
-  it('registers morph-hoodi as a testnet with a manual faucet URL', () => {
-    const m = CHAIN_META['morph-hoodi'];
+  it('registers morph-hoodi-testnet as a testnet with a manual faucet URL', () => {
+    const m = CHAIN_META['morph-hoodi-testnet'];
     expect(m.chainId).toBe(2910);
     expect(m.faucet).toBeNull();
     expect(m.manualFaucetUrl).toContain('bridge-hoodi.morph.network');
   });
 
-  it('refuses to drip on morph-hoodi (no programmatic faucet) but returns the bridge URL', async () => {
-    const r = await requestFaucet(ADDR, 'morph-hoodi', vi.fn() as never);
+  it('refuses to drip on morph-hoodi-testnet (no programmatic faucet) but returns the bridge URL', async () => {
+    const r = await requestFaucet(ADDR, 'morph-hoodi-testnet' as any, vi.fn() as never);
     expect(r.programmatic).toBe(false);
     expect(r.manualUrl).toContain('bridge-hoodi.morph.network');
   });

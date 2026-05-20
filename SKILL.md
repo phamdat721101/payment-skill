@@ -112,7 +112,7 @@ n-payment SDK code with the wallet at `~/.n-payment/wallets/<name>.json`.
 | "pay gas in usdc / altfee" (Morph) | `morph_altfee_pay` (STUB) |
 | "passwordless payment / passkey" (Morph) | `morph_passkey_pay` (STUB) |
 
-## Tools (20)
+## Tools (37)
 
 <!-- TOOLS:START -->
 | # | Tool | Description |

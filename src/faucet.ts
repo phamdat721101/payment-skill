@@ -129,7 +129,7 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
     rpcUrl: 'https://rpc-quicknode.morph.network',
     usdc: '0xe34c91815d7fc18A9e2148bcD4241d0a5848b693',
   },
-  'morph-hoodi': {
+  'morph-hoodi-testnet': {
     name: 'Morph Hoodi Testnet',
     chainId: 2910,
     rpcUrl: 'https://rpc-hoodi.morph.network',
@@ -146,10 +146,34 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
       decimals: 18,
     },
     faucet: null,
-    // SPACE/CTC are not faucet-funded — point users at the canonical token doc
-    // which lists the exchanges where SPACE and CTC are available.
     manualFaucetUrl:
       'https://docs.spacecoin.org/usdspace-token/token-overview-and-utility',
+  },
+  'creditcoin-testnet': {
+    name: 'Creditcoin CC3 Testnet',
+    chainId: 102031,
+    rpcUrl: 'https://rpc.cc3-testnet.creditcoin.network',
+    paymentToken: {
+      address: '0x7ab7C6A935Ab2D1437398790C9C0660af62A80b9',
+      symbol: 'SPACE',
+      decimals: 18,
+    },
+    faucet: null,
+    manualFaucetUrl: 'https://faucet.cc3-testnet.creditcoin.network',
+  },
+  'bnb-mainnet': {
+    name: 'BNB Chain',
+    chainId: 56,
+    rpcUrl: 'https://bsc-dataseed.binance.org',
+    usdc: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+  },
+  'bnb-testnet': {
+    name: 'BNB Testnet',
+    chainId: 97,
+    rpcUrl: 'https://data-seed-prebsc-1-s1.binance.org:8545',
+    usdc: '0x64544969ed7EBf5f083679233325356EbE738930',
+    faucet: null,
+    manualFaucetUrl: 'https://testnet.bnbchain.org/faucet-smart',
   },
 };
 

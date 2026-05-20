@@ -22,6 +22,8 @@ export const CHAIN_KEYS = [
   'tempo-testnet',
   'tempo-mainnet',
   'base-mainnet',
+  'bnb-mainnet',
+  'bnb-testnet',
   'xrpl-testnet',
   'xrpl-mainnet',
   'stellar-testnet',
@@ -29,8 +31,9 @@ export const CHAIN_KEYS = [
   'solana-mainnet',
   'solana-devnet',
   'morph-mainnet',
-  'morph-hoodi',
+  'morph-hoodi-testnet',
   'creditcoin-mainnet',
+  'creditcoin-testnet',
 ] as const;
 
 export type ChainKey = (typeof CHAIN_KEYS)[number];
@@ -81,6 +84,12 @@ export const TOOLS: ReadonlyArray<Tool> = [
       body: z.string().optional(),
       max_price_micros: PriceMicros.optional()
         .describe('Refuse to pay if price exceeds this cap'),
+      proxy: z.enum(['spacerouter', 'auto', 'none']).optional()
+        .describe('Route through SpaceRouter residential proxy (v0.11+)'),
+      reference_key: z.string().max(32).optional()
+        .describe('Morph Reference Key — merchant order ID linked on-chain'),
+      region: z.string().regex(/^[A-Z]{2}$/).optional()
+        .describe('ISO 3166-1 alpha-2 region for proxy routing'),
     }),
     handler: h.pay as never,
   }),
@@ -343,7 +352,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
       to: Address,
       amount_usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
       gas_token: z.enum(['usdc', 'usdt0', 'bgb']).default('usdc'),
-      chain: z.enum(['morph-mainnet', 'morph-hoodi']),
+      chain: z.enum(['morph-mainnet', 'morph-hoodi-testnet']),
     }),
     handler: h.morph_altfee_pay as never,
   }),
@@ -356,9 +365,136 @@ export const TOOLS: ReadonlyArray<Tool> = [
       recipient: Address,
       amount_usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
       passkey_credential_id: z.string().optional(),
-      chain: z.enum(['morph-mainnet', 'morph-hoodi']),
+      chain: z.enum(['morph-mainnet', 'morph-hoodi-testnet']),
     }),
     handler: h.morph_passkey_pay as never,
+  }),
+
+  // ─── XRPL (Ripple) tools ─────────────────────────────────────────────────
+  def({
+    name: 'xrpl_pay',
+    description: 'Send RLUSD on XRPL to a destination address.',
+    schema: z.object({
+      destination: z.string().min(25),
+      amount: z.string().regex(/^\d+(\.\d+)?$/),
+      chain: z.enum(['xrpl-testnet', 'xrpl-mainnet']).default('xrpl-testnet'),
+    }),
+    handler: h.xrpl_pay as never,
+  }),
+
+  def({
+    name: 'xrpl_balance',
+    description: 'Check RLUSD balance on XRPL.',
+    schema: z.object({
+      address: z.string().min(25).optional(),
+      chain: z.enum(['xrpl-testnet', 'xrpl-mainnet']).default('xrpl-testnet'),
+    }),
+    handler: h.xrpl_balance as never,
+  }),
+
+  def({
+    name: 'xrpl_vault',
+    description: 'Manage XRPL native vaults: create, deposit, withdraw, info, exchange-rate.',
+    schema: z.object({
+      action: z.enum(['create', 'deposit', 'withdraw', 'info', 'exchange-rate']),
+      vault_id: z.string().optional(),
+      amount: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+      shares: z.string().optional(),
+      chain: z.enum(['xrpl-testnet', 'xrpl-mainnet']).default('xrpl-testnet'),
+    }),
+    handler: h.xrpl_vault as never,
+  }),
+
+  def({
+    name: 'xrpl_oracle',
+    description: 'Get DIA oracle price feed on XRPL (RLUSD, XRP, BTC, ETH).',
+    schema: z.object({
+      asset: z.enum(['RLUSD', 'XRP', 'BTC', 'ETH']),
+      chain: z.enum(['xrpl-testnet', 'xrpl-mainnet']).default('xrpl-testnet'),
+    }),
+    handler: h.xrpl_oracle as never,
+  }),
+
+  def({
+    name: 'xrpl_trust_line',
+    description: 'Ensure RLUSD trust line exists on the agent XRPL account.',
+    schema: z.object({
+      chain: z.enum(['xrpl-testnet', 'xrpl-mainnet']).default('xrpl-testnet'),
+    }),
+    handler: h.xrpl_trust_line as never,
+  }),
+
+  // ─── Circle Gateway nanopayments ───────────────────────────────────────────
+  def({
+    name: 'circle_nanopay',
+    description: 'Pay a URL via Circle Gateway gas-free nanopayments (EIP-3009). Requires CIRCLE_API_KEY env.',
+    schema: z.object({
+      url: z.string().url(),
+      method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).default('GET'),
+      body: z.string().optional(),
+      chain: Chain.optional(),
+    }),
+    handler: h.circle_nanopay as never,
+  }),
+
+  // ─── Stellar Trustless Work escrow ─────────────────────────────────────────
+  def({
+    name: 'stellar_escrow',
+    description: 'Manage milestone-based escrow on Stellar via Trustless Work: create, fund, submit-milestone, approve, release, dispute, status.',
+    schema: z.object({
+      action: z.enum(['create', 'fund', 'submit-milestone', 'approve', 'release', 'dispute', 'status']),
+      job_id: z.string().optional(),
+      milestone_index: z.number().int().nonnegative().optional(),
+      provider: z.string().optional(),
+      amount: z.string().optional(),
+      title: z.string().optional(),
+      milestones: z.array(z.object({ description: z.string() })).optional(),
+      chain: z.enum(['stellar-testnet', 'stellar-mainnet']).default('stellar-testnet'),
+    }),
+    handler: h.stellar_escrow as never,
+  }),
+
+  // ─── Agent Card (A2A) ──────────────────────────────────────────────────────
+  def({
+    name: 'agent_card',
+    description: 'Generate or read an A2A Agent Card (/.well-known/agent.json).',
+    schema: z.object({
+      action: z.enum(['generate', 'read']),
+      url: z.string().url().optional(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      pay_to: Address.optional(),
+      chain: Chain.optional(),
+      skills: z.array(z.object({ name: z.string(), description: z.string(), price: z.number() })).optional(),
+    }),
+    handler: h.agent_card as never,
+  }),
+
+  // ─── Permit2 gasless approval ──────────────────────────────────────────────
+  def({
+    name: 'permit2_approve',
+    description: 'Sign an off-chain Permit2 (EIP-712) approval for gasless token spending.',
+    schema: z.object({
+      token: Address,
+      amount: z.string().regex(/^\d+$/),
+      spender: Address,
+      chain: Chain,
+      deadline: z.number().int().optional(),
+    }),
+    handler: h.permit2_approve as never,
+  }),
+
+  // ─── Direct ERC-20 transfer ────────────────────────────────────────────────
+  def({
+    name: 'direct_transfer',
+    description: 'Send ERC-20 tokens directly (no 402 flow). Mainnet guard applies.',
+    schema: z.object({
+      to: Address,
+      token_address: Address,
+      amount: z.string().regex(/^\d+$/),
+      chain: Chain,
+    }),
+    handler: h.direct_transfer as never,
   }),
 
   // ─── SpaceRouter (SpaceCoin) — residential proxy + on-chain SPACE escrow ─

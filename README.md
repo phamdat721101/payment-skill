@@ -27,7 +27,7 @@ npx n-payment-skill
 
 ## What you get
 
-27 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
+37 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
 Windsurf, Continue, GitHub Copilot, generic MCP, OpenAI / ChatGPT,
 LangChain, and LlamaIndex** — Node-native, with a 15-line Python snippet
 for the rest (no separate Python package needed).
@@ -105,7 +105,7 @@ curl -fsSL https://n-payment.dev/install.sh | sh
 Paste this single line into your AI chat:
 
 > Run `npx n-payment-skill` to install the n-payment web3 payment skill.
-> It gives you 27 tools for paying APIs, accepting payments, off-ramping
+> It gives you 37 tools for paying APIs, accepting payments, off-ramping
 > USDC, generating QR codes, delegating budgets to sub-agents, and
 > routing through the SpaceRouter decentralized residential-proxy network
 > with $SPACE on Creditcoin.
@@ -287,7 +287,7 @@ flowchart LR
     user[("User\nin AI chat")] -->|"pay for X"| host
     host{{"AI host\n(Claude / Kiro / Cursor / Gemini / …)"}} -->|MCP stdio<br/>tools/call| binary
     binary[["n-payment-skill CLI\n(Node, single binary)"]] --> tools
-    tools["27 tool handlers"] --> sdk
+    tools["37 tool handlers"] --> sdk
     sdk[("n-payment SDK + skill adapters\nx402 / MPP / GOAT / Stellar / XRPL / Solana / Morph / SpaceRouter")] --> chain[("Chain RPCs\nUSDC / SPACE contracts")]
     binary --> wallet[(["~/.n-payment/wallets/\ndefault.json + spacerouter.json\n(0600)"])]
 ```
@@ -336,7 +336,7 @@ npx n-payment-skill --target cursor       # or windsurf / continue
 ```
 
 Adds an `mcpServers.n-payment` entry to the host's MCP config without
-disturbing existing servers. Restart the host; the 27 tools appear under
+disturbing existing servers. Restart the host; the 37 tools appear under
 the **n-payment** server.
 
 ### Gemini CLI (extension)
@@ -436,7 +436,7 @@ def call(method, params=None):
     return json.loads(_proc.stdout.readline())
 
 call("initialize")
-tools = call("tools/list")["result"]["tools"]               # all 27 tools
+tools = call("tools/list")["result"]["tools"]               # all 37 tools
 print(call("tools/call",
            {"name": "negotiate",
             "arguments": {"price_micros": 10_000, "caller_reputation": 95}}))
@@ -529,8 +529,8 @@ payment-skill/
 ├── package.json
 ├── src/
 │   ├── cli.ts            # commander-based CLI (setup default, install, mcp, …)
-│   ├── tools.ts          # SINGLE source of truth: 27 tool defs + types
-│   ├── handlers.ts       # 27 handler implementations (n-payment SDK)
+│   ├── tools.ts          # SINGLE source of truth: 37 tool defs + types
+│   ├── handlers.ts       # 37 handler implementations (n-payment SDK)
 │   ├── schema.ts         # zod → JSON Schema / OpenAI fn-call
 │   ├── exports.ts        # paste-ready exports (chatgpt-gpt, langchain, …)
 │   ├── mcp.ts            # transport-agnostic dispatcher + stdio + HTTP
