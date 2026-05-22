@@ -25,15 +25,16 @@ npx -y github:phamdat721101/payment-skill
 📖 **3-minute walkthroughs:**
 [`docs/article.md`](./docs/article.md) — build a paid endpoint and pay it from another script in one prompt.
 [`docs/spacecoin-article.md`](./docs/spacecoin-article.md) — pay $SPACE through SpaceRouter for residential-IP routing.
+[`docs/aave-yield-article.md`](./docs/aave-yield-article.md) — earn yield on idle USDC via Aave V3 on Base Sepolia.
 
 ---
 
 ## What you get
 
 38 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
-Windsurf, Continue, GitHub Copilot, generic MCP, OpenAI / ChatGPT,
-LangChain, and LlamaIndex** — Node-native, with a 15-line Python snippet
-for the rest (no separate Python package needed).
+Windsurf, Continue, GitHub Copilot, generic MCP, OpenAI / ChatGPT, and
+LlamaIndex** — Node-native, with a 15-line Python snippet for the rest
+(no separate Python package needed).
 
 | # | Tool | Purpose |
 |---|------|---------|
@@ -80,61 +81,101 @@ for the rest (no separate Python package needed).
 | Generic MCP (HTTP) | ✅ | HTTP `/mcp` | Run `n-payment-skill mcp --http` |
 | ChatGPT custom GPT | 📋 paste | OpenAPI Action | `n-payment-skill export chatgpt-gpt` |
 | OpenAI Assistants | 📋 paste | tools.json | `n-payment-skill export openai` |
-| LangChain JS | 📋 paste | DynamicStructuredTool | `n-payment-skill export langchain` |
 | LlamaIndex JS | 📋 paste | tool() | `n-payment-skill export llamaindex` |
-| LangChain Python | 📋 paste | 15-line subprocess snippet | See [Use from Python](#use-from-python) |
 | LlamaIndex Python | 📋 paste | 15-line subprocess snippet | See [Use from Python](#use-from-python) |
 
 ---
 
-## Install in one line
+## 🚀 Getting started in 90 seconds
 
-Pick whichever your environment prefers — they produce the same outcome.
+Three prompts is all it takes: **install** → **ask the agent to implement a paid service** → **ask the agent to earn yield on idle USDC.**
 
-### npx (any machine with Node ≥ 18)
-
-```bash
-npx n-payment-skill                # auto-detects every supported host
-npx n-payment-skill --target cursor  # only wire Cursor
-```
-
-### curl | sh
+### 1️⃣ Install (one line)
 
 ```bash
-curl -fsSL https://n-payment.dev/install.sh | sh
+npx -y github:phamdat721101/payment-skill
 ```
 
-### Paste-to-agent
+This:
 
-Paste this single line into your AI chat:
+- 🧩 **Detects your AI host** and wires the skill (Claude Code, Kiro, Cursor, Gemini CLI, Windsurf, Continue, GitHub Copilot).
+- 🔐 **Generates a wallet** at `~/.n-payment/wallets/default.json` (chmod 0600 — your private key never leaves disk).
+- 💧 **Drips 10 USDC** on Base Sepolia via the Circle faucet.
+- 🩺 **Runs `doctor`** to confirm RPC, balance, and faucet are reachable.
 
-> Run `npx n-payment-skill` to install the n-payment web3 payment skill.
-> It gives you 37 tools for paying APIs, accepting payments, off-ramping
-> USDC, generating QR codes, delegating budgets to sub-agents, and
-> routing through the SpaceRouter decentralized residential-proxy network
-> with $SPACE on Creditcoin.
+> ⚠ The npm name `n-payment-skill` is not published yet. The GitHub URL above works identically — npm clones the repo, runs `prepare` to build `dist/`, and links the `n-payment-skill` bin globally. See [More install paths](#more-install-paths) to pin a ref, use a tarball, or run from a local checkout.
 
-The agent will run the command and confirm the host, wallet, and faucet.
+### 2️⃣ Implement a payment service (one prompt)
 
-### Python
+Tell your AI agent:
 
-No separate package — Python users call the Node MCP server with a 15-line
-snippet. See [Use from Python](#use-from-python).
+> *"create paywall for /forecast at 0.05 USDC on base-sepolia"*
+
+The agent calls `create_paywall` and pastes a ready-to-run Express middleware:
+
+```ts
+import express from 'express';
+import { createAgentProvider, paidTool } from 'n-payment';
+
+const provider = createAgentProvider({
+  name: 'forecast',
+  description: 'forecast paywall',
+  payTo: '0xYourMerchantAddress',
+  chain: 'base-sepolia',
+  tools: [
+    paidTool({
+      name: 'forecast',
+      description: 'weather forecast',
+      price: 50_000, // USDC micro-units = 0.05 USDC
+      handler: async (input) => ({ ok: true }),
+    }),
+  ],
+});
+
+const app = express();
+app.use(provider.middleware());
+app.listen(3000);
+```
+
+Drop it into your repo, `node server.js`, and any agent can now pay your endpoint via the **x402** HTTP-402 protocol.
+
+### 3️⃣ Earn yield while you wait to spend (one prompt)
+
+Idle USDC = lost yield. Drip ~0.001 ETH for gas (there is no programmatic Base Sepolia ETH faucet) at https://www.alchemy.com/faucets/base-sepolia, then tell the agent:
+
+> *"earn yield on usdc"*
+
+The agent calls `aave_yield` with `action='demo'` — gas guard → auto-mint Aave's testnet mock USDC → approve the V3 Pool → supply 1 USDC → return the new aUSDC balance:
+
+```
+DONE — supplied 1.0 USDC to Aave V3 on Base Sepolia
+  • supply tx: 0x…
+  • aTokenAddress: 0x…
+  • aUsdcBalance: 1.000003
+  • via: viem-direct
+```
+
+Manage the position any time:
+
+- *"check my aave position"* → `aave_yield {action:"position"}`
+- *"supply 5 USDC to aave"* → `aave_yield {action:"supply", amount_usdc:"5"}`
+- *"withdraw 0.5 USDC from aave"* → `aave_yield {action:"withdraw", amount_usdc:"0.5"}`
+
+📖 Full walkthrough: [`docs/aave-yield-article.md`](./docs/aave-yield-article.md).
 
 ---
 
-## Install without publishing
+## More install paths
 
-You don't need to push to npm or PyPI. Every install path below works against
-a fresh GitHub repo, a tarball, or a local checkout.
+Every path below works against a fresh GitHub repo, a tarball, or a local checkout — no npm publish required.
 
-### From GitHub (no npm publish required)
+### From GitHub
 
 ```bash
-# One-shot run — npm clones the repo, runs `prepare` to compile dist/, then runs the bin.
-npx github:phamdat721101/payment-skill
+# One-shot run.
+npx -y github:phamdat721101/payment-skill
 
-# Persistent global install (same idea, just stays installed).
+# Persistent global install.
 npm install -g github:phamdat721101/payment-skill
 
 # Pin to a branch, tag, or commit:
@@ -146,28 +187,27 @@ npm install -g github:phamdat721101/payment-skill#a1b2c3d
 ### From a tarball (offline / private mirror)
 
 ```bash
-git clone https://github.com/phamdat721101/payment-skill && cd n-payment-skill
-npm install && npm pack                     # produces n-payment-skill-1.0.0.tgz
-npm install -g ./n-payment-skill-1.0.0.tgz   # ship that file anywhere
+git clone https://github.com/phamdat721101/payment-skill && cd payment-skill
+npm install && npm pack                       # produces n-payment-skill-1.0.0.tgz
+npm install -g ./n-payment-skill-1.0.0.tgz     # ship that file anywhere
 ```
 
 ### From a local checkout (development)
 
 ```bash
 git clone https://github.com/phamdat721101/payment-skill
-cd n-payment-skill && npm install
-npm install -g .                             # global "n-payment-skill" bin points at this checkout
+cd payment-skill && npm install
+npm install -g .                               # global "n-payment-skill" bin points at this checkout
 # …or just run the un-installed bin:
 node dist/cli.js setup
 ```
 
-### Curl | sh against any of the above
+### Curl | sh
+
+The bundled `install.sh` auto-falls back from registry-404 to the GitHub source.
 
 ```bash
-# Default — npm registry:
-curl -fsSL https://n-payment.dev/install.sh | sh
-
-# GitHub (no publish):
+# GitHub (recommended today):
 curl -fsSL https://raw.githubusercontent.com/phamdat721101/payment-skill/main/install.sh \
   | sh -s -- --from-git phamdat721101/payment-skill
 
@@ -177,90 +217,15 @@ curl -fsSL …/install.sh | sh -s -- --from-git phamdat721101/payment-skill#main
 # Tarball URL (e.g., a GitHub release asset):
 curl -fsSL …/install.sh | sh -s -- --from-tarball https://github.com/phamdat721101/payment-skill/releases/download/v1.0.0/n-payment-skill-1.0.0.tgz
 
-# Local directory (already-cloned repo):
-curl -fsSL …/install.sh | sh -s -- --from-path /Users/me/work/n-payment-skill
+# Local directory:
+curl -fsSL …/install.sh | sh -s -- --from-path /Users/me/work/payment-skill
 ```
 
-### Python without PyPI
-
-There is no separate Python package — Python users call the Node MCP server
-over stdio. See [Use from Python](#use-from-python) for the 15-line snippet.
-
-> Note on the `n-payment` SDK peer dependency: it is declared `optional`, so
-> install never fails when the SDK is not on the registry yet. Tools that
-> need the SDK (e.g. `pay`, `register_identity`) raise a friendly error at
-> call time. If you also have `n-payment` only on GitHub, install both:
+> The `n-payment` SDK is an **optional** peer dep — install never fails when the SDK is not on the registry. Tools that need the SDK (`pay`, `register_identity`, `aave_yield`) raise a friendly error at call time. If your `n-payment` is only on GitHub, install both:
 >
 > ```bash
 > npm install -g github:phamdat721101/n-payment github:phamdat721101/payment-skill
 > ```
-
----
-
-## Quickstart (3 minutes)
-
-```bash
-# 1. install
-npx n-payment-skill
-# ...  ✓ claude (1 file)
-# ...  ✓ wallet ready: 0xabc…
-# ...  ✓ faucet: Circle faucet dripped 10 USDC to … on Base Sepolia.
-
-# 2. tell your AI agent
-> "pay for https://x402-demo.example/data on base-sepolia"
-# agent: { status: 200, body: "{...}" }
-
-# 3. monetize your own endpoint
-> "create paywall for /forecast at 0.05 USDC on base-sepolia"
-# agent pastes ready-made Express middleware.
-
-# 4. switch to mainnet (opt-in)
-n-payment-skill config set testnetMode false
-export GOAT_API_KEY=… GOAT_API_SECRET=… GOAT_MERCHANT_ID=…
-```
-
----
-
-## 💰 Quick demo: earn yield on Base Sepolia
-
-> One install, one prompt, one transaction.
-
-```bash
-# 1. install the skill (creates wallet + drips 10 USDC on Base Sepolia)
-npx -y n-payment-skill
-
-# 2. drip ~0.001 ETH for gas (no programmatic faucet for Base Sepolia ETH)
-open https://www.alchemy.com/faucets/base-sepolia
-
-# 3. tell your AI agent (Claude Code / Kiro / Cursor / Gemini / …):
-> "earn yield on usdc"
-```
-
-The agent calls `aave_yield` with `action='demo'`, which auto-mints Aave's
-testnet mock USDC if needed (the Pool registers its own mock at
-`0xba50…D5f`, distinct from Circle's USDC), approves the V3 Pool, supplies
-**1 USDC**, and returns the freshly-minted **aUSDC** balance. Override the
-Pool with `AAVE_POOL_ADDRESS` and the mock USDC with `AAVE_USDC_ADDRESS`.
-
-```
-DONE — supplied 1.0 USDC to Aave V3 on Base Sepolia
-  • supply tx: 0x…
-  • aTokenAddress: 0x…
-  • aUsdcBalance: 1.000003
-  • via: viem-direct
-```
-
-Read your position any time:
-
-```bash
-n-payment-skill tools call aave_yield '{"action":"position"}'
-```
-
-Withdraw whenever you want:
-
-```bash
-n-payment-skill tools call aave_yield '{"action":"withdraw","amount_usdc":"0.5"}'
-```
 
 ---
 
@@ -334,7 +299,7 @@ flowchart LR
     user[("User\nin AI chat")] -->|"pay for X"| host
     host{{"AI host\n(Claude / Kiro / Cursor / Gemini / …)"}} -->|MCP stdio<br/>tools/call| binary
     binary[["n-payment-skill CLI\n(Node, single binary)"]] --> tools
-    tools["37 tool handlers"] --> sdk
+    tools["38 tool handlers"] --> sdk
     sdk[("n-payment SDK + skill adapters\nx402 / MPP / GOAT / Stellar / XRPL / Solana / Morph / SpaceRouter")] --> chain[("Chain RPCs\nUSDC / SPACE contracts")]
     binary --> wallet[(["~/.n-payment/wallets/\ndefault.json + spacerouter.json\n(0600)"])]
 ```
@@ -345,7 +310,7 @@ flowchart LR
 - the SKILL.md tool table,
 - the MCP `tools/list` and `tools/call` handlers,
 - the OpenAI / Anthropic function-call schema,
-- the LangChain & LlamaIndex JS adapters (auto-exported),
+- the LlamaIndex JS adapter (auto-exported),
 - the ChatGPT custom-GPT OpenAPI manifest,
 - and (via MCP stdio) any Python / Go / Rust client.
 
@@ -356,7 +321,6 @@ flowchart TB
     A["src/tools.ts (TOOLS)"] --> B[SKILL.md]
     A --> C["MCP /tools (stdio + HTTP)"]
     A --> D[tools.json]
-    A --> E[LangChain JS]
     A --> F[LlamaIndex JS]
     A --> G[ChatGPT OpenAPI]
     C --> H["Python / Go / Rust\n(any MCP stdio client)"]
@@ -445,15 +409,6 @@ const run = await openai.chat.completions.create({
 });
 ```
 
-### LangChain JS
-
-```bash
-n-payment-skill export langchain > n-payment-tools.ts
-```
-
-The generated file exports `nPaymentTools` (an array of
-`DynamicStructuredTool`s) that you bind to your model.
-
 ### LlamaIndex.TS
 
 ```bash
@@ -487,19 +442,6 @@ tools = call("tools/list")["result"]["tools"]               # all 37 tools
 print(call("tools/call",
            {"name": "negotiate",
             "arguments": {"price_micros": 10_000, "caller_reputation": 95}}))
-```
-
-**LangChain** (build a `BaseTool` from each entry of `tools`):
-
-```python
-from langchain_core.tools import BaseTool
-def make_tool(t):
-    class _T(BaseTool):
-        name = t["name"]; description = t["description"]
-        def _run(self, **kwargs):
-            return call("tools/call", {"name": self.name, "arguments": kwargs})
-    return _T()
-lc_tools = [make_tool(t) for t in tools]
 ```
 
 **LlamaIndex** (build a `FunctionTool` per entry):
@@ -576,10 +518,10 @@ payment-skill/
 ├── package.json
 ├── src/
 │   ├── cli.ts            # commander-based CLI (setup default, install, mcp, …)
-│   ├── tools.ts          # SINGLE source of truth: 37 tool defs + types
-│   ├── handlers.ts       # 37 handler implementations (n-payment SDK)
+│   ├── tools.ts          # SINGLE source of truth: 38 tool defs + types
+│   ├── handlers.ts       # 38 handler implementations (n-payment SDK + Aave V3)
 │   ├── schema.ts         # zod → JSON Schema / OpenAI fn-call
-│   ├── exports.ts        # paste-ready exports (chatgpt-gpt, langchain, …)
+│   ├── exports.ts        # paste-ready exports (chatgpt-gpt, llamaindex, openai)
 │   ├── mcp.ts            # transport-agnostic dispatcher + stdio + HTTP
 │   ├── hosts.ts          # declarative host registry + installHosts()
 │   ├── skill.ts          # SKILL.md renderer (injects tools)
@@ -590,9 +532,9 @@ payment-skill/
 │   ├── stellar.ts        # Stellar adapter: keypair derivation, SEP-7 URI, Horizon
 │   ├── spacerouter.ts    # SpaceRouter (SpaceCoin): dedicated wallet, escrow ABI, gateway client, dry-run
 │   └── index.ts
-└── test/                 # 119 vitest tests (tools, schema, wallet, faucet,
+└── test/                 # 127 vitest tests (tools, schema, wallet, faucet,
                           #   skill, mcp, hosts, exports, morph, stellar,
-                          #   spacerouter)
+                          #   aave, spacerouter)
 ```
 
 ---
@@ -610,6 +552,10 @@ payment-skill/
 | `REFERENCE_KEY_NOT_FOUND` | Reference Key launches with Morph mainnet (April 2026); 404 expected on Hoodi |
 | `STELLAR_OZ_KEY_MISSING` | Stellar mainnet needs `STELLAR_OZ_API_KEY`. Generate at https://channels.openzeppelin.com/gen |
 | `INSUFFICIENT_FUNDS` | `n-payment-skill faucet --chain base-sepolia` |
+| `INSUFFICIENT_GAS` | Drip ETH at https://www.alchemy.com/faucets/base-sepolia (no programmatic Base Sepolia ETH faucet) |
+| `AAVE_POOL_INVALID` | The configured Pool didn't return USDC reserve data — `export AAVE_POOL_ADDRESS=0x…` |
+| `AAVE_POOL_MISSING` | `export AAVE_POOL_ADDRESS=0x…` to a deployed V3 Pool |
+| `INSUFFICIENT_AUSDC` | Withdraw amount exceeds supplied aUSDC; lower `amount_usdc` or supply more |
 | `RPC unreachable` | Check internet / corporate proxy; retry `n-payment-skill doctor` |
 | `Circle faucet 429` | Rate-limited; visit `https://faucet.circle.com` and drip manually |
 | `ESCROW_CONFIG_MISSING` | `export NPAYMENT_ESCROW_CONTRACT=0x…` |
@@ -632,7 +578,7 @@ Run `n-payment-skill doctor` any time for a colored health report.
 git clone https://github.com/phamdat721101/payment-skill
 cd n-payment-skill
 npm install
-npm test          # 119 tests
+npm test          # 127 tests
 npm run build
 node dist/cli.js --version
 ```
