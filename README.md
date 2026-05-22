@@ -16,7 +16,10 @@
 ```bash
 # One line. Detects your AI host, drops the skill, generates a wallet,
 # funds testnet, runs doctor — every machine gets the same outcome.
-npx n-payment-skill
+#
+# ⚠ The npm package `n-payment-skill` is not published yet. Until then,
+# install straight from GitHub (works identically — npm clones, builds, links the bin):
+npx -y github:phamdat721101/payment-skill
 ```
 
 📖 **3-minute walkthroughs:**
@@ -27,7 +30,7 @@ npx n-payment-skill
 
 ## What you get
 
-37 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
+38 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
 Windsurf, Continue, GitHub Copilot, generic MCP, OpenAI / ChatGPT,
 LangChain, and LlamaIndex** — Node-native, with a 15-line Python snippet
 for the rest (no separate Python package needed).
@@ -61,6 +64,7 @@ for the rest (no separate Python package needed).
 | 25 | `spacerouter_escrow` | 🛰️ Manage on-chain SPACE escrow on Creditcoin: `deposit / balance / initiate-withdrawal / execute-withdrawal / cancel-withdrawal / status`. |
 | 26 | `spacerouter_sync_receipts` | 🛰️ Push pending Leg-1 receipts on-chain into the SpaceRouter escrow. |
 | 27 | `spacerouter_admin` | 🛰️ Manage SpaceRouter API keys via a coordination/admin API instance (advanced; needs `SR_ADMIN_URL`). |
+| 28 | `aave_yield` | 💰 Earn yield on USDC via Aave V3 on Base Sepolia. `action='demo'` is the one-prompt happy path: gas guard → auto-faucet → approve → supply 1 USDC → return aUSDC. Hybrid: n-payment v0.13 → @aave/client → viem-direct. |
 
 ### Host coverage
 
@@ -213,6 +217,49 @@ npx n-payment-skill
 # 4. switch to mainnet (opt-in)
 n-payment-skill config set testnetMode false
 export GOAT_API_KEY=… GOAT_API_SECRET=… GOAT_MERCHANT_ID=…
+```
+
+---
+
+## 💰 Quick demo: earn yield on Base Sepolia
+
+> One install, one prompt, one transaction.
+
+```bash
+# 1. install the skill (creates wallet + drips 10 USDC on Base Sepolia)
+npx -y n-payment-skill
+
+# 2. drip ~0.001 ETH for gas (no programmatic faucet for Base Sepolia ETH)
+open https://www.alchemy.com/faucets/base-sepolia
+
+# 3. tell your AI agent (Claude Code / Kiro / Cursor / Gemini / …):
+> "earn yield on usdc"
+```
+
+The agent calls `aave_yield` with `action='demo'`, which auto-mints Aave's
+testnet mock USDC if needed (the Pool registers its own mock at
+`0xba50…D5f`, distinct from Circle's USDC), approves the V3 Pool, supplies
+**1 USDC**, and returns the freshly-minted **aUSDC** balance. Override the
+Pool with `AAVE_POOL_ADDRESS` and the mock USDC with `AAVE_USDC_ADDRESS`.
+
+```
+DONE — supplied 1.0 USDC to Aave V3 on Base Sepolia
+  • supply tx: 0x…
+  • aTokenAddress: 0x…
+  • aUsdcBalance: 1.000003
+  • via: viem-direct
+```
+
+Read your position any time:
+
+```bash
+n-payment-skill tools call aave_yield '{"action":"position"}'
+```
+
+Withdraw whenever you want:
+
+```bash
+n-payment-skill tools call aave_yield '{"action":"withdraw","amount_usdc":"0.5"}'
 ```
 
 ---

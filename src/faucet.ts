@@ -41,6 +41,8 @@ interface ChainMeta {
   stellarUsdcContract?: string;
   /** Stellar issuer account (G…) for USDC. Stellar-only. */
   stellarUsdcIssuer?: string;
+  /** Aave V3 Pool address on this chain. Override at runtime via AAVE_POOL_ADDRESS. */
+  aave?: { pool: Address; usdc?: Address };
 }
 
 export const CHAIN_META: Record<ChainKey, ChainMeta> = {
@@ -51,6 +53,10 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
     usdc: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
     faucet: 'circle',
     manualFaucetUrl: 'https://faucet.circle.com',
+    aave: {
+      pool: '0x8bAB6d1b75f19e9eD9fCe8b9BD338844fF79aE27',
+      usdc: '0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f',
+    },
   },
   'arbitrum-sepolia': {
     name: 'Arbitrum Sepolia',

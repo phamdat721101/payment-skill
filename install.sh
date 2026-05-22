@@ -97,13 +97,28 @@ esac
 
 say "${bold}Installing $PKG from $SOURCE: $INSTALL_TARGET${reset}"
 
-# Try without sudo first; fall back to sudo if the global prefix is read-only.
+# Try without sudo first; fall back to GitHub on registry-404, then sudo if
+# the global prefix is read-only.
 if ! npm install -g "$INSTALL_TARGET" >/dev/null 2>&1; then
-  warn "Global install failed; retrying with sudo..."
-  if command -v sudo >/dev/null 2>&1; then
-    sudo npm install -g "$INSTALL_TARGET" || die "Install still failed. Try a user-writable npm prefix: \`npm config set prefix ~/.npm-global\`."
+  if [ "$SOURCE" = "registry" ]; then
+    warn "Registry install failed (likely 404 — '$PKG' is not published yet). Falling back to GitHub: $DEFAULT_GIT_REPO."
+    SOURCE="git"
+    INSTALL_TARGET="github:$DEFAULT_GIT_REPO"
+    if ! npm install -g "$INSTALL_TARGET" >/dev/null 2>&1; then
+      warn "GitHub install also failed; retrying with sudo..."
+      if command -v sudo >/dev/null 2>&1; then
+        sudo npm install -g "$INSTALL_TARGET" || die "Install still failed. Try a user-writable npm prefix: \`npm config set prefix ~/.npm-global\`."
+      else
+        die "Install failed and sudo is unavailable. Run: npm install -g $INSTALL_TARGET"
+      fi
+    fi
   else
-    die "Install failed and sudo is unavailable. Run: npm install -g $INSTALL_TARGET"
+    warn "Global install failed; retrying with sudo..."
+    if command -v sudo >/dev/null 2>&1; then
+      sudo npm install -g "$INSTALL_TARGET" || die "Install still failed. Try a user-writable npm prefix: \`npm config set prefix ~/.npm-global\`."
+    else
+      die "Install failed and sudo is unavailable. Run: npm install -g $INSTALL_TARGET"
+    fi
   fi
 fi
 say "${green}✓ installed $PKG${reset}"

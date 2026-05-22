@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { TOOLS, TOOL_BY_NAME, TOOL_NAMES, Chain, CHAIN_KEYS } from '../src/tools.js';
 
 describe('tool registry', () => {
-  it('exposes exactly 37 tools', () => {
-    expect(TOOLS).toHaveLength(37);
+  it('exposes exactly 38 tools', () => {
+    expect(TOOLS).toHaveLength(38);
   });
 
   it('has unique tool names', () => {

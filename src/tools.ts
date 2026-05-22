@@ -497,6 +497,27 @@ export const TOOLS: ReadonlyArray<Tool> = [
     handler: h.direct_transfer as never,
   }),
 
+  // ─── Aave V3 yield (Base Sepolia, USDC) ────────────────────────────────────
+  def({
+    name: 'aave_yield',
+    description:
+      'Earn yield on USDC via Aave V3 on Base Sepolia. action=demo runs the one-prompt happy path (gas guard → auto-faucet → approve → supply 1 USDC → return aUSDC). supply/withdraw take amount_usdc; position reads aUSDC + USDC balances. Override AAVE_POOL_ADDRESS to use a different V3 Pool. Hybrid path: n-payment v0.13 → @aave/client → viem-direct.',
+    schema: z.object({
+      action: z.enum(['demo', 'supply', 'withdraw', 'position']),
+      amount_usdc: z
+        .string()
+        .regex(/^\d+(\.\d{1,6})?$/, 'use a decimal like "1.0"')
+        .optional()
+        .describe('USDC amount. Required for supply/withdraw. Default for demo: "1".'),
+      chain: z.enum(['base-sepolia']).default('base-sepolia'),
+      auto_faucet: z
+        .boolean()
+        .default(true)
+        .describe('demo only: auto-call the Circle faucet when balance < demo amount.'),
+    }),
+    handler: h.aave_yield as never,
+  }),
+
   // ─── SpaceRouter (SpaceCoin) — residential proxy + on-chain SPACE escrow ─
   def({
     name: 'spacerouter_pay',

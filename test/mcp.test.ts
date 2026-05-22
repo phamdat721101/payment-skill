@@ -37,11 +37,11 @@ describe('MCP dispatcher', () => {
     );
   });
 
-  it('tools/list returns all 37 tools with inputSchema', async () => {
+  it('tools/list returns all 38 tools with inputSchema', async () => {
     const r = await handleMessage(req(2, 'tools/list'), ctx());
     const tools = (r.result as { tools: Array<{ name: string; inputSchema: unknown }> })
       .tools;
-    expect(tools).toHaveLength(37);
+    expect(tools).toHaveLength(38);
     expect(tools.every((t) => typeof t.inputSchema === 'object')).toBe(true);
   });
 
@@ -94,7 +94,7 @@ describe('MCP HTTP transport', () => {
       const body = (await list.json()) as {
         result: { tools: Array<unknown> };
       };
-      expect(body.result.tools).toHaveLength(37);
+      expect(body.result.tools).toHaveLength(38);
     } finally {
       await handle.close();
     }

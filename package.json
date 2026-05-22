@@ -73,12 +73,14 @@
     "zod-to-json-schema": "^3.23.0"
   },
   "peerDependencies": {
-    "n-payment": ">=0.12.0",
-    "@spacenetwork/spacerouter": ">=1.5.0"
+    "n-payment": ">=0.13.0",
+    "@spacenetwork/spacerouter": ">=1.5.0",
+    "@aave/client": ">=1.0.0"
   },
   "peerDependenciesMeta": {
     "n-payment": { "optional": true },
-    "@spacenetwork/spacerouter": { "optional": true }
+    "@spacenetwork/spacerouter": { "optional": true },
+    "@aave/client": { "optional": true }
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

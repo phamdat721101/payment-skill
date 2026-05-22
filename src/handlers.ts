@@ -1277,3 +1277,578 @@ export const spacerouter_admin = async (
       return failFromSr(e);
     }
   });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Aave V3 yield (Base Sepolia, USDC)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Hybrid path resolved once per process (probeAavePath):
+//   1. n-payment v0.13   — LendingClient | AaveAdapter | createYieldClient
+//   2. @aave/client      — official supply/withdraw actions (mainnet-only today)
+//   3. viem-direct       — Aave V3 Pool ABI on local provider (always works)
+//
+// Each `via=*` path is its own `tryAave*Via*` function. `aaveSupply`/
+// `aaveWithdraw` walk the priority list, returning the first non-null result.
+// Open/Closed: add a new SDK path = add a new try* function to the list.
+
+type AaveAction = 'demo' | 'supply' | 'withdraw' | 'position';
+type AaveVia = 'n-payment-v0.13' | '@aave/client' | 'viem-direct';
+
+const AAVE_DEMO_DEFAULT_USDC = '1';
+const AAVE_MIN_NATIVE_WEI = parseUnits('0.0005', 18); // gas reserve for Base Sepolia
+const AAVE_BASE_SEPOLIA_CHAIN_ID = 84532;
+
+const AAVE_POOL_ABI = [
+  {
+    type: 'function',
+    name: 'supply',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'asset', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'onBehalfOf', type: 'address' },
+      { name: 'referralCode', type: 'uint16' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'withdraw',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'asset', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'to', type: 'address' },
+    ],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'getReserveData',
+    stateMutability: 'view',
+    inputs: [{ name: 'asset', type: 'address' }],
+    outputs: [
+      {
+        type: 'tuple',
+        components: [
+          { name: 'configuration', type: 'uint256' },
+          { name: 'liquidityIndex', type: 'uint128' },
+          { name: 'currentLiquidityRate', type: 'uint128' },
+          { name: 'variableBorrowIndex', type: 'uint128' },
+          { name: 'currentVariableBorrowRate', type: 'uint128' },
+          { name: 'currentStableBorrowRate', type: 'uint128' },
+          { name: 'lastUpdateTimestamp', type: 'uint40' },
+          { name: 'id', type: 'uint16' },
+          { name: 'aTokenAddress', type: 'address' },
+          { name: 'stableDebtTokenAddress', type: 'address' },
+          { name: 'variableDebtTokenAddress', type: 'address' },
+          { name: 'interestRateStrategyAddress', type: 'address' },
+          { name: 'accruedToTreasury', type: 'uint128' },
+          { name: 'unbacked', type: 'uint128' },
+          { name: 'isolationModeTotalDebt', type: 'uint128' },
+        ],
+      },
+    ],
+  },
+] as const;
+
+// Aave's testnet mock USDC exposes a public mint(to, amount). Some variants
+// also expose a parameterless mint(amount) — we try mint(to,amount) first.
+const MOCK_ERC20_MINT_ABI = [
+  {
+    type: 'function',
+    name: 'mint',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+] as const;
+
+interface AaveCtx {
+  chain: 'base-sepolia';
+  pool: Address;
+  usdc: Address;
+  decimals: 6;
+  publicClient: ReturnType<typeof createPublicClient>;
+  walletClient: any;
+  owner: Address;
+}
+
+let _aavePathCache: AaveVia | null = null;
+
+/** Test-only hook: reset the cached SDK probe between vitest cases. */
+export function __resetAavePathForTests(): void {
+  _aavePathCache = null;
+}
+
+/** Returns the env override, the chain-meta default, or null. */
+function resolveAavePool(env: NodeJS.ProcessEnv): Address | null {
+  const override = env.AAVE_POOL_ADDRESS;
+  if (override && /^0x[a-fA-F0-9]{40}$/.test(override)) return override as Address;
+  return CHAIN_META['base-sepolia'].aave?.pool ?? null;
+}
+
+/**
+ * Aave's testnet Pool registers its own mock USDC, distinct from Circle's
+ * USDC used elsewhere on Base Sepolia. Resolution order:
+ *   1. AAVE_USDC_ADDRESS env override
+ *   2. CHAIN_META['base-sepolia'].aave.usdc (Aave mock)
+ *   3. CHAIN_META['base-sepolia'].usdc        (Circle's, fallback only)
+ */
+function resolveAaveUsdc(env: NodeJS.ProcessEnv): Address | null {
+  const override = env.AAVE_USDC_ADDRESS;
+  if (override && /^0x[a-fA-F0-9]{40}$/.test(override)) return override as Address;
+  const meta = CHAIN_META['base-sepolia'];
+  return (meta.aave?.usdc as Address | undefined) ?? (meta.usdc as Address | undefined) ?? null;
+}
+
+async function buildAaveCtx(
+  ctx: ToolContext,
+): Promise<AaveCtx | ToolResult> {
+  const chain = 'base-sepolia' as const;
+  const meta = CHAIN_META[chain];
+  const usdc = resolveAaveUsdc(ctx.env);
+  if (!usdc) return fail('USDC not configured for base-sepolia.', 'NO_USDC');
+  const pool = resolveAavePool(ctx.env);
+  if (!pool)
+    return fail(
+      'No Aave V3 Pool configured for base-sepolia.',
+      'AAVE_POOL_MISSING',
+      'Set AAVE_POOL_ADDRESS env var to a deployed V3 Pool.',
+    );
+  const w = await getWallet(ctx);
+  const { createWalletClient } = await import('viem');
+  const { privateKeyToAccount } = await import('viem/accounts');
+  const account = privateKeyToAccount(w.privateKey);
+  const transport = http(meta.rpcUrl);
+  const vchain = viemChain(chain);
+  const publicClient = createPublicClient({ chain: vchain, transport });
+  const walletClient = createWalletClient({ account, chain: vchain, transport });
+  return {
+    chain,
+    pool,
+    usdc,
+    decimals: 6,
+    publicClient,
+    walletClient,
+    owner: account.address,
+  };
+}
+
+async function readATokenAddress(c: AaveCtx): Promise<Address> {
+  const data = (await c.publicClient.readContract({
+    address: c.pool,
+    abi: AAVE_POOL_ABI,
+    functionName: 'getReserveData',
+    args: [c.usdc],
+  })) as { aTokenAddress: Address };
+  return data.aTokenAddress;
+}
+
+async function readUsdcBalance(c: AaveCtx): Promise<bigint> {
+  return (await c.publicClient.readContract({
+    address: c.usdc,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [c.owner],
+  })) as bigint;
+}
+
+async function readATokenBalance(c: AaveCtx, aToken: Address): Promise<bigint> {
+  return (await c.publicClient.readContract({
+    address: aToken,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [c.owner],
+  })) as bigint;
+}
+
+async function ensureAllowance(c: AaveCtx, amount: bigint): Promise<Hex | null> {
+  const allowance = (await c.publicClient.readContract({
+    address: c.usdc,
+    abi: erc20Abi,
+    functionName: 'allowance',
+    args: [c.owner, c.pool],
+  })) as bigint;
+  if (allowance >= amount) return null;
+  const hash = (await c.walletClient.writeContract({
+    address: c.usdc,
+    abi: erc20Abi,
+    functionName: 'approve',
+    args: [c.pool, amount],
+  })) as Hex;
+  await c.publicClient.waitForTransactionReceipt({ hash });
+  return hash;
+}
+
+/**
+ * Probe upstream lending SDKs in priority order. Cached for the process
+ * lifetime — no path can downgrade mid-run. Returns 'viem-direct' as the
+ * always-available fallback.
+ */
+async function probeAavePath(): Promise<AaveVia> {
+  if (_aavePathCache) return _aavePathCache;
+  // 1) n-payment v0.13 lending exports.
+  try {
+    const sdk = (await np()) as Record<string, unknown>;
+    if (
+      typeof sdk['LendingClient'] === 'function' ||
+      typeof sdk['AaveAdapter'] === 'function' ||
+      typeof sdk['createYieldClient'] === 'function'
+    ) {
+      _aavePathCache = 'n-payment-v0.13';
+      return _aavePathCache;
+    }
+  } catch {
+    // n-payment not installed — continue.
+  }
+  // 2) @aave/client (optional peerDep).
+  try {
+    // @ts-expect-error optional peer dep, may not be installed
+    await import('@aave/client');
+    _aavePathCache = '@aave/client';
+    return _aavePathCache;
+  } catch {
+    // not installed — continue.
+  }
+  _aavePathCache = 'viem-direct';
+  return _aavePathCache;
+}
+
+// ─── SDK try-paths (return null on miss/fail; aaveSupply/Withdraw fall through)
+
+/** Execute an @aave/client returned plan via the local wallet client. */
+async function executeAavePlan(
+  c: AaveCtx,
+  plan: any,
+): Promise<{ approval_tx?: Hex; tx_hash: Hex }> {
+  let approval_tx: Hex | undefined;
+  if (plan?.__typename === 'ApprovalRequired') {
+    approval_tx = (await c.walletClient.sendTransaction({
+      to: plan.approval.to,
+      value: BigInt(plan.approval.value ?? 0),
+      data: plan.approval.data,
+    })) as Hex;
+    await c.publicClient.waitForTransactionReceipt({ hash: approval_tx });
+  }
+  const tx = plan?.__typename === 'ApprovalRequired' ? plan.originalTransaction : plan;
+  const tx_hash = (await c.walletClient.sendTransaction({
+    to: tx.to,
+    value: BigInt(tx.value ?? 0),
+    data: tx.data,
+  })) as Hex;
+  await c.publicClient.waitForTransactionReceipt({ hash: tx_hash });
+  return { approval_tx, tx_hash };
+}
+
+async function tryAaveSupplyViaNPayment(
+  c: AaveCtx,
+  amount: bigint,
+): Promise<ToolResult | null> {
+  try {
+    const sdk = (await np()) as Record<string, any>;
+    const factory = sdk.createYieldClient as ((cfg: unknown) => any) | undefined;
+    const Klass = (sdk.LendingClient ?? sdk.AaveAdapter) as
+      | (new (cfg: unknown) => any)
+      | undefined;
+    const client = factory
+      ? factory({ chain: c.chain })
+      : Klass
+        ? new Klass({ chain: c.chain })
+        : null;
+    if (!client || typeof client.supply !== 'function') return null;
+    const r = await client.supply({
+      asset: c.usdc,
+      amount,
+      onBehalfOf: c.owner,
+      pool: c.pool,
+    });
+    if (!r?.txHash && !r?.tx_hash && !r?.hash) return null;
+    const supply_tx = (r.txHash ?? r.tx_hash ?? r.hash) as Hex;
+    const aToken = await readATokenAddress(c);
+    const aUsdcBalance = formatUnits(await readATokenBalance(c, aToken), c.decimals);
+    return ok({
+      chain: c.chain,
+      owner: c.owner,
+      supplied_amount: formatUnits(amount, c.decimals),
+      aTokenAddress: aToken,
+      aUsdcBalance,
+      approval_tx: r.approvalTx ?? r.approval_tx,
+      supply_tx,
+      via: 'n-payment-v0.13' as AaveVia,
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function tryAaveSupplyViaAaveClient(
+  c: AaveCtx,
+  amount: bigint,
+  amountUsdc: string,
+): Promise<ToolResult | null> {
+  try {
+    // @ts-expect-error optional peer dep
+    const { AaveClient, evmAddress } = await import('@aave/client');
+    // @ts-expect-error optional peer dep
+    const { supply } = await import('@aave/client/actions');
+    const aaveClient = AaveClient.create();
+    const r = await supply(aaveClient, {
+      market: c.pool,
+      amount: { erc20: { currency: c.usdc, value: amountUsdc } },
+      sender: evmAddress(c.owner),
+      chainId: AAVE_BASE_SEPOLIA_CHAIN_ID,
+    });
+    if (r.isErr()) return null;
+    const { approval_tx, tx_hash } = await executeAavePlan(c, r.value);
+    const aToken = await readATokenAddress(c);
+    const aUsdcBalance = formatUnits(await readATokenBalance(c, aToken), c.decimals);
+    return ok({
+      chain: c.chain,
+      owner: c.owner,
+      supplied_amount: amountUsdc,
+      aTokenAddress: aToken,
+      aUsdcBalance,
+      approval_tx,
+      supply_tx: tx_hash,
+      via: '@aave/client' as AaveVia,
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function aaveSupplyViaViem(
+  c: AaveCtx,
+  amount: bigint,
+  amountUsdc: string,
+): Promise<ToolResult> {
+  let aToken: Address;
+  try {
+    aToken = await readATokenAddress(c);
+  } catch {
+    return fail(
+      `Aave Pool at ${c.pool} did not return reserve data for USDC.`,
+      'AAVE_POOL_INVALID',
+      'Override with AAVE_POOL_ADDRESS env var.',
+    );
+  }
+  const approval_tx = await ensureAllowance(c, amount);
+  const supply_tx = (await c.walletClient.writeContract({
+    address: c.pool,
+    abi: AAVE_POOL_ABI,
+    functionName: 'supply',
+    args: [c.usdc, amount, c.owner, 0],
+  })) as Hex;
+  await c.publicClient.waitForTransactionReceipt({ hash: supply_tx });
+  const aUsdcBalance = formatUnits(await readATokenBalance(c, aToken), c.decimals);
+  return ok({
+    chain: c.chain,
+    owner: c.owner,
+    supplied_amount: amountUsdc,
+    aTokenAddress: aToken,
+    aUsdcBalance,
+    approval_tx,
+    supply_tx,
+    via: 'viem-direct' as AaveVia,
+  });
+}
+
+async function aaveWithdrawViaViem(
+  c: AaveCtx,
+  amount: bigint,
+  amountUsdc: string,
+): Promise<ToolResult> {
+  let aToken: Address;
+  try {
+    aToken = await readATokenAddress(c);
+  } catch {
+    return fail(
+      `Aave Pool at ${c.pool} did not return reserve data for USDC.`,
+      'AAVE_POOL_INVALID',
+      'Override with AAVE_POOL_ADDRESS env var.',
+    );
+  }
+  const aBal = await readATokenBalance(c, aToken);
+  if (aBal < amount)
+    return fail(
+      `Supplied balance is ${formatUnits(aBal, c.decimals)} aUSDC, less than ${amountUsdc}.`,
+      'INSUFFICIENT_AUSDC',
+    );
+  const withdraw_tx = (await c.walletClient.writeContract({
+    address: c.pool,
+    abi: AAVE_POOL_ABI,
+    functionName: 'withdraw',
+    args: [c.usdc, amount, c.owner],
+  })) as Hex;
+  await c.publicClient.waitForTransactionReceipt({ hash: withdraw_tx });
+  const wallet_usdc = formatUnits(await readUsdcBalance(c), c.decimals);
+  return ok({
+    chain: c.chain,
+    owner: c.owner,
+    withdrawn_amount: amountUsdc,
+    wallet_usdc,
+    withdraw_tx,
+    via: 'viem-direct' as AaveVia,
+  });
+}
+
+// ─── Public action implementations ──────────────────────────────────────────
+
+async function aavePosition(c: AaveCtx, via: AaveVia): Promise<ToolResult> {
+  let aToken: Address;
+  try {
+    aToken = await readATokenAddress(c);
+  } catch {
+    return fail(
+      `Aave Pool at ${c.pool} did not return reserve data for USDC.`,
+      'AAVE_POOL_INVALID',
+      'Override with AAVE_POOL_ADDRESS env var.',
+    );
+  }
+  const [aBal, uBal] = await Promise.all([
+    readATokenBalance(c, aToken),
+    readUsdcBalance(c),
+  ]);
+  return ok({
+    chain: c.chain,
+    owner: c.owner,
+    aTokenAddress: aToken,
+    supplied_aUSDC: formatUnits(aBal, c.decimals),
+    wallet_usdc: formatUnits(uBal, c.decimals),
+    via,
+  });
+}
+
+async function aaveSupply(
+  c: AaveCtx,
+  amountUsdc: string,
+  via: AaveVia,
+): Promise<ToolResult> {
+  const amount = parseUnits(amountUsdc, c.decimals);
+  if (amount <= 0n) return fail('amount_usdc must be > 0', 'INVALID_AMOUNT');
+  const balance = await readUsdcBalance(c);
+  if (balance < amount)
+    return fail(
+      `Wallet has ${formatUnits(balance, c.decimals)} USDC but ${amountUsdc} required.`,
+      'INSUFFICIENT_FUNDS',
+      'Run `n-payment-skill faucet --chain base-sepolia` or open https://faucet.circle.com.',
+    );
+  if (via === 'n-payment-v0.13') {
+    const r = await tryAaveSupplyViaNPayment(c, amount);
+    if (r) return r;
+  }
+  if (via === '@aave/client') {
+    const r = await tryAaveSupplyViaAaveClient(c, amount, amountUsdc);
+    if (r) return r;
+  }
+  return aaveSupplyViaViem(c, amount, amountUsdc);
+}
+
+async function aaveWithdraw(
+  c: AaveCtx,
+  amountUsdc: string,
+  _via: AaveVia,
+): Promise<ToolResult> {
+  // Withdraw uses viem-direct unconditionally — neither upstream SDK
+  // supports Base Sepolia today, and the Pool ABI is stable.
+  const amount = parseUnits(amountUsdc, c.decimals);
+  if (amount <= 0n) return fail('amount_usdc must be > 0', 'INVALID_AMOUNT');
+  return aaveWithdrawViaViem(c, amount, amountUsdc);
+}
+
+async function aaveDemo(
+  c: AaveCtx,
+  amountUsdc: string,
+  autoFaucet: boolean,
+  via: AaveVia,
+): Promise<ToolResult> {
+  // 1) Gas guard: Base Sepolia ETH has no programmatic faucet — fail fast.
+  const native = await c.publicClient.getBalance({ address: c.owner });
+  if (native < AAVE_MIN_NATIVE_WEI)
+    return fail(
+      `Wallet has ${formatUnits(native, 18)} ETH on Base Sepolia, less than 0.0005 needed for gas.`,
+      'INSUFFICIENT_GAS',
+      'Drip ETH at https://www.alchemy.com/faucets/base-sepolia',
+    );
+  // 2) USDC balance with optional auto-faucet via mint() on Aave's mock USDC.
+  //    The Circle faucet wouldn't help here — Aave's testnet Pool only knows
+  //    its own mock token, distinct from Circle's USDC.
+  const required = parseUnits(amountUsdc, c.decimals);
+  let balance = await readUsdcBalance(c);
+  let mintTx: Hex | undefined;
+  if (balance < required && autoFaucet) {
+    mintTx = (await tryMintAaveMockUsdc(c, required - balance)) ?? undefined;
+    if (mintTx) balance = await readUsdcBalance(c);
+  }
+  if (balance < required)
+    return fail(
+      `Wallet has ${formatUnits(balance, c.decimals)} mock-USDC at ${c.usdc}, but ${amountUsdc} required.`,
+      'INSUFFICIENT_FUNDS',
+      `Mint mock-USDC at ${c.usdc} (call mint(yourAddress, amount)) and retry.`,
+    );
+  // 3) Supply.
+  const result = await aaveSupply(c, amountUsdc, via);
+  if (!result.ok) return result;
+  return ok({ ...(result.data as object), mint_tx: mintTx });
+}
+
+/**
+ * Attempt to mint Aave's mock USDC. Returns the tx hash when the mock
+ * exposes a public `mint(address,uint256)`, or null if the call reverts
+ * (e.g., the deployment uses a different funding mechanism).
+ */
+async function tryMintAaveMockUsdc(
+  c: AaveCtx,
+  amount: bigint,
+): Promise<Hex | null> {
+  try {
+    const hash = (await c.walletClient.writeContract({
+      address: c.usdc,
+      abi: MOCK_ERC20_MINT_ABI,
+      functionName: 'mint',
+      args: [c.owner, amount],
+    })) as Hex;
+    await c.publicClient.waitForTransactionReceipt({ hash });
+    return hash;
+  } catch {
+    return null;
+  }
+}
+
+export const aave_yield = async (
+  args: {
+    action: AaveAction;
+    amount_usdc?: string;
+    chain?: 'base-sepolia';
+    auto_faucet?: boolean;
+  },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const c = await buildAaveCtx(ctx);
+    if (!('publicClient' in c)) return c; // ToolResult error
+    const via = await probeAavePath();
+    switch (args.action) {
+      case 'position':
+        return aavePosition(c, via);
+      case 'supply':
+        if (!args.amount_usdc)
+          return fail('amount_usdc required for supply', 'MISSING_ARG');
+        return aaveSupply(c, args.amount_usdc, via);
+      case 'withdraw':
+        if (!args.amount_usdc)
+          return fail('amount_usdc required for withdraw', 'MISSING_ARG');
+        return aaveWithdraw(c, args.amount_usdc, via);
+      case 'demo':
+        return aaveDemo(
+          c,
+          args.amount_usdc ?? AAVE_DEMO_DEFAULT_USDC,
+          args.auto_faucet ?? true,
+          via,
+        );
+    }
+  });
