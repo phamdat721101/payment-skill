@@ -43,6 +43,7 @@ import {
   SpaceRouterClient,
   SpaceRouterError,
 } from './spacerouter.js';
+import * as flare from './flare.js';
 
 // ─── n-payment lazy loader ───────────────────────────────────────────────────
 // Optional peer dep — types only present when the SDK is actually installed.
@@ -1851,4 +1852,201 @@ export const aave_yield = async (
           via,
         );
     }
+  });
+
+
+// ────────────────────────────────────────────────────────────────────────────
+// Flare FAssets — XRP → FXRP bridge via Flare Smart Accounts (proof-based).
+//
+// One-line UX: the user prompts "bridge XRP to FXRP". The handler:
+//   1. Auto-discovers the operator XRPL address and first agent vault on
+//      Flare Coston2 (zero config; env overrides honored).
+//   2. Encodes the FXRP collateralReservation reference (32 bytes).
+//   3. Submits ONE XRPL Payment carrying the reference as InvoiceID. The
+//      Flare operator backend pulls an FDC attestation and calls
+//      `MasterAccountController.reserveCollateral` on the user's deterministic
+//      PersonalAccount; FXRP is minted into that account.
+//   4. Polls FXRP balance until it increases, or timeout.
+// ────────────────────────────────────────────────────────────────────────────
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type XrplLib = any;
+
+async function loadXrplLib(): Promise<XrplLib> {
+  try {
+    // xrpl is a transitive dep of n-payment; loaded lazily so install never
+    // fails when the SDK is unavailable. Typed as `any` because the type
+    // package is optional too.
+    // @ts-expect-error optional transitive dep — types may be absent
+    return await import('xrpl');
+  } catch {
+    throw Object.assign(
+      new Error(
+        'xrpl library not found. Install n-payment latest: `npm i n-payment@latest` or `pnpm add n-payment@^0.15`.',
+      ),
+      { code: 'XRPL_LIB_MISSING' },
+    );
+  }
+}
+
+async function xrplAddressFromSeed(seed: string): Promise<string> {
+  const xrpl = await loadXrplLib();
+  return xrpl.Wallet.fromSeed(seed).address as string;
+}
+
+const XRPL_TESTNET_WS = 'wss://s.altnet.rippletest.net:51233';
+const XRPL_MAINNET_WS = 'wss://xrplcluster.com';
+
+async function submitXrplPayment(opts: {
+  seed: string;
+  destination: string;
+  amountXrp: string;
+  reference: `0x${string}`;
+  network: 'testnet' | 'mainnet';
+}): Promise<{ hash: string }> {
+  const xrpl = await loadXrplLib();
+  const client = new xrpl.Client(
+    opts.network === 'mainnet' ? XRPL_MAINNET_WS : XRPL_TESTNET_WS,
+  );
+  await client.connect();
+  try {
+    const wallet = xrpl.Wallet.fromSeed(opts.seed);
+    const tx: Record<string, unknown> = {
+      TransactionType: 'Payment',
+      Account: wallet.address,
+      Destination: opts.destination,
+      Amount: xrpl.xrpToDrops(opts.amountXrp),
+      // XRPL InvoiceID is exactly 32 bytes (64 hex chars, uppercase, no 0x).
+      InvoiceID: opts.reference.slice(2).toUpperCase(),
+    };
+    const prepared = await client.autofill(tx as never);
+    const signed = wallet.sign(prepared as never);
+    const result = await client.submitAndWait(signed.tx_blob);
+    const meta = (result.result as { meta?: { TransactionResult?: string } }).meta;
+    const code = meta?.TransactionResult ?? 'UNKNOWN';
+    if (code !== 'tesSUCCESS') {
+      throw Object.assign(new Error(`XRPL Payment failed: ${code}`), {
+        code: 'XRPL_SUBMIT_FAILED',
+      });
+    }
+    return { hash: (result.result as { hash: string }).hash };
+  } finally {
+    await client.disconnect();
+  }
+}
+
+export const xrpl_to_fxrp_bridge = async (
+  args: {
+    amount_xrp: string;
+    lots: number;
+    agent_vault_id?: string;
+    operator_xrpl?: string;
+    wait: boolean;
+    poll_interval_ms: number;
+    timeout_ms: number;
+    chain: 'flare-coston2' | 'flare-mainnet';
+  },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const guard = guardMainnet(args.chain as ChainKey, ctx);
+    if (guard) return guard;
+
+    const seed = ctx.env.XRPL_SEED;
+    if (!seed) {
+      return fail(
+        'XRPL_SEED env var is required for the XRPL → FXRP bridge.',
+        'XRPL_SEED_MISSING',
+        'export XRPL_SEED=sEd…   (XRPL Testnet seed; faucet: https://faucet.altnet.rippletest.net/accounts).',
+      );
+    }
+
+    // Auto-discover operator XRPL + first agent vault in parallel.
+    const [operators, agents] = await Promise.all([
+      flare.getOperatorXrplAddresses(args.chain),
+      flare.getAgentVaults(args.chain),
+    ]);
+    if (operators.length === 0) {
+      return fail(
+        'No operator XRPL addresses are registered on this Flare network.',
+        'FLARE_NOT_CONFIGURED',
+        'Verify the chain has Smart Accounts deployed; check https://dev.flare.network/smart-accounts/overview.',
+      );
+    }
+    if (agents.length === 0) {
+      return fail(
+        'No FAssets agent vaults are registered on this Flare network.',
+        'NO_AGENT_VAULTS',
+        'Wait for an agent to register, or pass a known agent_vault_id explicitly.',
+      );
+    }
+
+    const operatorXrpl = args.operator_xrpl ?? operators[0]!;
+    const agentVaultId = args.agent_vault_id
+      ? BigInt(args.agent_vault_id)
+      : agents[0]!.id;
+
+    const xrplAddress = await xrplAddressFromSeed(seed);
+    const personalAccount = await flare.getPersonalAccountAddress(
+      xrplAddress,
+      args.chain,
+    );
+    const reference = flare.encodeCollateralReservationReference({
+      agentVaultId,
+      lots: BigInt(args.lots),
+    });
+    const fxrpBalanceBefore = await flare.getFxrpBalance(
+      personalAccount,
+      args.chain,
+    );
+
+    const submitted = await submitXrplPayment({
+      seed,
+      destination: operatorXrpl,
+      amountXrp: args.amount_xrp,
+      reference,
+      network: args.chain === 'flare-mainnet' ? 'mainnet' : 'testnet',
+    });
+
+    const baseResult = {
+      xrpl_tx_hash: submitted.hash,
+      xrpl_address: xrplAddress,
+      operator_xrpl: operatorXrpl,
+      agent_vault_id: agentVaultId.toString(),
+      personal_account_address: personalAccount,
+      reference,
+      fxrp_balance_before: fxrpBalanceBefore.toString(),
+    };
+
+    if (!args.wait) {
+      return ok({ step: 'submitted', ...baseResult });
+    }
+
+    const start = Date.now();
+    let fxrpBalanceAfter = fxrpBalanceBefore;
+    while (Date.now() - start < args.timeout_ms) {
+      await sleep(args.poll_interval_ms);
+      fxrpBalanceAfter = await flare.getFxrpBalance(personalAccount, args.chain);
+      if (fxrpBalanceAfter > fxrpBalanceBefore) break;
+    }
+    const minted = fxrpBalanceAfter > fxrpBalanceBefore;
+    const duration_ms = Date.now() - start;
+
+    if (!minted) {
+      return fail(
+        `FXRP balance did not increase within ${Math.round(args.timeout_ms / 1000)}s. The mint may still complete asynchronously; the XRPL Payment ${submitted.hash} is on-chain.`,
+        'MINT_TIMEOUT',
+        `Track ${personalAccount} on https://coston2-explorer.flare.network or re-run with wait=false to skip polling.`,
+      );
+    }
+
+    return ok({
+      step: 'minted',
+      ...baseResult,
+      fxrp_balance_after: fxrpBalanceAfter.toString(),
+      duration_ms,
+    });
   });

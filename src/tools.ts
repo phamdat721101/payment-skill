@@ -34,6 +34,8 @@ export const CHAIN_KEYS = [
   'morph-hoodi-testnet',
   'creditcoin-mainnet',
   'creditcoin-testnet',
+  'flare-coston2',
+  'flare-mainnet',
 ] as const;
 
 export type ChainKey = (typeof CHAIN_KEYS)[number];
@@ -588,6 +590,29 @@ export const TOOLS: ReadonlyArray<Tool> = [
       rate_limit_rpm: z.number().int().positive().optional(),
     }),
     handler: h.spacerouter_admin as never,
+  }),
+
+  // ─── Flare FAssets — XRP → FXRP bridge via Smart Accounts ────────────────
+  def({
+    name: 'xrpl_to_fxrp_bridge',
+    description:
+      'Bridge XRP from XRPL into FXRP on Flare Coston2 via Flare Smart Accounts (proof-based mint). Auto-discovers the operator XRPL address and the first agent vault on-chain, encodes the FXRP collateralReservation reference, submits one XRPL Payment, then polls the user\'s PersonalAccount FXRP balance. Default: 10 XRP / 1 lot. Sync: blocks up to 180s. Requires XRPL_SEED env var (testnet seed).',
+    schema: z.object({
+      amount_xrp: z
+        .string()
+        .regex(/^\d+(\.\d{1,6})?$/, 'decimal XRP, e.g. "10" or "1.5"')
+        .default('10'),
+      lots: z.number().int().positive().max(10_000).default(1),
+      agent_vault_id: z.string().regex(/^\d+$/).optional()
+        .describe('FAssets agent vault id; default = first registered'),
+      operator_xrpl: z.string().min(25).optional()
+        .describe('Operator XRPL address; default = first registered with MasterAccountController'),
+      wait: z.boolean().default(true),
+      poll_interval_ms: z.number().int().min(1000).max(30_000).default(5000),
+      timeout_ms: z.number().int().min(10_000).max(600_000).default(180_000),
+      chain: z.enum(['flare-coston2', 'flare-mainnet']).default('flare-coston2'),
+    }),
+    handler: h.xrpl_to_fxrp_bridge as never,
   }),
 ];
 

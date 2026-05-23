@@ -181,6 +181,18 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
     faucet: null,
     manualFaucetUrl: 'https://testnet.bnbchain.org/faucet-smart',
   },
+  'flare-coston2': {
+    name: 'Flare Coston2',
+    chainId: 114,
+    rpcUrl: 'https://coston2-api.flare.network/ext/C/rpc',
+    faucet: null,
+    manualFaucetUrl: 'https://faucet.flare.network/coston2',
+  },
+  'flare-mainnet': {
+    name: 'Flare',
+    chainId: 14,
+    rpcUrl: 'https://flare-api.flare.network/ext/C/rpc',
+  },
 };
 
 export const isTestnetChain = (chain: ChainKey): boolean =>

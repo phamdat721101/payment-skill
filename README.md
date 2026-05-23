@@ -31,7 +31,7 @@ npx -y github:phamdat721101/payment-skill
 
 ## What you get
 
-38 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
+39 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
 Windsurf, Continue, GitHub Copilot, generic MCP, OpenAI / ChatGPT, and
 LlamaIndex** — Node-native, with a 15-line Python snippet for the rest
 (no separate Python package needed).
@@ -66,6 +66,7 @@ LlamaIndex** — Node-native, with a 15-line Python snippet for the rest
 | 26 | `spacerouter_sync_receipts` | 🛰️ Push pending Leg-1 receipts on-chain into the SpaceRouter escrow. |
 | 27 | `spacerouter_admin` | 🛰️ Manage SpaceRouter API keys via a coordination/admin API instance (advanced; needs `SR_ADMIN_URL`). |
 | 28 | `aave_yield` | 💰 Earn yield on USDC via Aave V3 on Base Sepolia. `action='demo'` is the one-prompt happy path: gas guard → auto-faucet → approve → supply 1 USDC → return aUSDC. Hybrid: n-payment v0.13 → @aave/client → viem-direct. |
+| 29 | `xrpl_to_fxrp_bridge` | 🔥 One-line XRP → FXRP bridge on Flare Coston2 via Flare Smart Accounts (proof-based mint). Auto-discovers operator XRPL + first agent vault on-chain; submits ONE XRPL Payment with the encoded reference; sync-polls FXRP balance up to 180s. Default 10 XRP / 1 lot. Requires `XRPL_SEED`. |
 
 ### Host coverage
 
@@ -299,7 +300,7 @@ flowchart LR
     user[("User\nin AI chat")] -->|"pay for X"| host
     host{{"AI host\n(Claude / Kiro / Cursor / Gemini / …)"}} -->|MCP stdio<br/>tools/call| binary
     binary[["n-payment-skill CLI\n(Node, single binary)"]] --> tools
-    tools["38 tool handlers"] --> sdk
+    tools["39 tool handlers"] --> sdk
     sdk[("n-payment SDK + skill adapters\nx402 / MPP / GOAT / Stellar / XRPL / Solana / Morph / SpaceRouter")] --> chain[("Chain RPCs\nUSDC / SPACE contracts")]
     binary --> wallet[(["~/.n-payment/wallets/\ndefault.json + spacerouter.json\n(0600)"])]
 ```
@@ -518,8 +519,8 @@ payment-skill/
 ├── package.json
 ├── src/
 │   ├── cli.ts            # commander-based CLI (setup default, install, mcp, …)
-│   ├── tools.ts          # SINGLE source of truth: 38 tool defs + types
-│   ├── handlers.ts       # 38 handler implementations (n-payment SDK + Aave V3)
+│   ├── tools.ts          # SINGLE source of truth: 39 tool defs + types
+│   ├── handlers.ts       # 39 handler implementations (n-payment SDK + Aave V3 + Flare FAssets)
 │   ├── schema.ts         # zod → JSON Schema / OpenAI fn-call
 │   ├── exports.ts        # paste-ready exports (chatgpt-gpt, llamaindex, openai)
 │   ├── mcp.ts            # transport-agnostic dispatcher + stdio + HTTP
@@ -531,6 +532,7 @@ payment-skill/
 │   ├── morph.ts          # Morph adapter: HMAC, x402 client, Reference Key
 │   ├── stellar.ts        # Stellar adapter: keypair derivation, SEP-7 URI, Horizon
 │   ├── spacerouter.ts    # SpaceRouter (SpaceCoin): dedicated wallet, escrow ABI, gateway client, dry-run
+│   ├── flare.ts          # Flare FAssets / Smart Accounts: state lookup + reference encoder
 │   └── index.ts
 └── test/                 # 127 vitest tests (tools, schema, wallet, faucet,
                           #   skill, mcp, hosts, exports, morph, stellar,
