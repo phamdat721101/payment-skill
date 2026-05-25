@@ -190,31 +190,33 @@ export async function getFxrpBalance(
 }
 
 // ── Reference encoder (FXRP collateralReservation) ─────────────────────────
-// Layout (32 bytes):
-//   byte 0  : instruction code = 0x00 (high nibble: FXRP type 0; low nibble: collateralReservation command 0)
-//   byte 1  : wallet identifier (default 0)
-//   bytes 2..17  (16 bytes) : agentVaultId, uint128 big-endian
-//   bytes 18..31 (14 bytes) : lots,         uint112 big-endian
+// Layout (32 bytes) per https://dev.flare.network/smart-accounts/fasset-instructions:
+//   byte 0      : instruction ID = 0x00 (type=FXRP nibble 0, command=collateralReservation nibble 0)
+//   byte 1      : walletId (default 0)
+//   bytes 2..11 : value (lots), uint80 big-endian (10 bytes)
+//   bytes 12..13: agentVaultId, uint16 big-endian (2 bytes)
+//   bytes 14..31: ignored (18 bytes, zero-filled)
 export function encodeCollateralReservationReference(opts: {
   agentVaultId: bigint;
   lots: bigint;
   walletId?: number;
 }): Hex {
-  if (opts.agentVaultId < 0n || opts.agentVaultId >= 1n << 128n) {
-    throw new Error('agentVaultId out of range (uint128).');
+  if (opts.agentVaultId < 0n || opts.agentVaultId >= 1n << 16n) {
+    throw new Error('agentVaultId out of range (uint16).');
   }
-  if (opts.lots <= 0n || opts.lots >= 1n << 112n) {
-    throw new Error('lots must be a positive uint112.');
+  if (opts.lots <= 0n || opts.lots >= 1n << 80n) {
+    throw new Error('lots must be a positive uint80.');
   }
   const walletId = opts.walletId ?? 0;
   if (walletId < 0 || walletId > 0xff) {
     throw new Error('walletId must fit in one byte.');
   }
   return concat([
-    toHex(0x00, { size: 1 }),
-    toHex(walletId, { size: 1 }),
-    toHex(opts.agentVaultId, { size: 16 }),
-    toHex(opts.lots, { size: 14 }),
+    toHex(0x00, { size: 1 }),       // byte 0: instruction ID
+    toHex(walletId, { size: 1 }),   // byte 1: walletId
+    toHex(opts.lots, { size: 10 }), // bytes 2-11: value (lots)
+    toHex(opts.agentVaultId, { size: 2 }), // bytes 12-13: agentVaultId
+    toHex(0n, { size: 18 }),        // bytes 14-31: padding
   ]);
 }
 

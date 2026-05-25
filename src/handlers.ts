@@ -1856,17 +1856,14 @@ export const aave_yield = async (
 
 
 // ────────────────────────────────────────────────────────────────────────────
-// Flare FAssets — XRP → FXRP bridge via Flare Smart Accounts (proof-based).
+// Flare FAssets — XRP → FXRP bridge via Flare Smart Accounts (two-step).
 //
-// One-line UX: the user prompts "bridge XRP to FXRP". The handler:
-//   1. Auto-discovers the operator XRPL address and first agent vault on
-//      Flare Coston2 (zero config; env overrides honored).
-//   2. Encodes the FXRP collateralReservation reference (32 bytes).
-//   3. Submits ONE XRPL Payment carrying the reference as InvoiceID. The
-//      Flare operator backend pulls an FDC attestation and calls
-//      `MasterAccountController.reserveCollateral` on the user's deterministic
-//      PersonalAccount; FXRP is minted into that account.
-//   4. Polls FXRP balance until it increases, or timeout.
+// Protocol (per https://dev.flare.network/smart-accounts/guides/cli/introduction):
+//   1. Send 1-drop XRPL Payment to OPERATOR with instruction as Memo.
+//   2. Operator calls reserveCollateral → emits CollateralReserved on Flare.
+//   3. Send XRP (valueUBA + feeUBA) to AGENT's underlying XRPL address with
+//      paymentReference as Memo.
+//   4. Operator proves payment via FDC → calls executeMinting → FXRP minted.
 // ────────────────────────────────────────────────────────────────────────────
 
 const sleep = (ms: number): Promise<void> =>
@@ -1877,16 +1874,11 @@ type XrplLib = any;
 
 async function loadXrplLib(): Promise<XrplLib> {
   try {
-    // xrpl is a transitive dep of n-payment; loaded lazily so install never
-    // fails when the SDK is unavailable. Typed as `any` because the type
-    // package is optional too.
-    // @ts-expect-error optional transitive dep — types may be absent
+    // @ts-expect-error optional transitive dep
     return await import('xrpl');
   } catch {
     throw Object.assign(
-      new Error(
-        'xrpl library not found. Install n-payment latest: `npm i n-payment@latest` or `pnpm add n-payment@^0.15`.',
-      ),
+      new Error('xrpl library not found. Install: `npm i xrpl`.'),
       { code: 'XRPL_LIB_MISSING' },
     );
   }
@@ -1900,11 +1892,12 @@ async function xrplAddressFromSeed(seed: string): Promise<string> {
 const XRPL_TESTNET_WS = 'wss://s.altnet.rippletest.net:51233';
 const XRPL_MAINNET_WS = 'wss://xrplcluster.com';
 
-async function submitXrplPayment(opts: {
+/** Send an XRPL Payment with MemoData (hex, no 0x prefix). */
+async function submitXrplMemoPayment(opts: {
   seed: string;
   destination: string;
-  amountXrp: string;
-  reference: `0x${string}`;
+  amountDrops: string;
+  memoHex: string; // hex without 0x
   network: 'testnet' | 'mainnet';
 }): Promise<{ hash: string }> {
   const xrpl = await loadXrplLib();
@@ -1918,9 +1911,8 @@ async function submitXrplPayment(opts: {
       TransactionType: 'Payment',
       Account: wallet.address,
       Destination: opts.destination,
-      Amount: xrpl.xrpToDrops(opts.amountXrp),
-      // XRPL InvoiceID is exactly 32 bytes (64 hex chars, uppercase, no 0x).
-      InvoiceID: opts.reference.slice(2).toUpperCase(),
+      Amount: opts.amountDrops,
+      Memos: [{ Memo: { MemoData: opts.memoHex.toUpperCase() } }],
     };
     const prepared = await client.autofill(tx as never);
     const signed = wallet.sign(prepared as never);
@@ -1936,6 +1928,80 @@ async function submitXrplPayment(opts: {
   } finally {
     await client.disconnect();
   }
+}
+
+// CollateralReserved event from IAssetManagerEvents
+const collateralReservedEvent = {
+  type: 'event' as const,
+  name: 'CollateralReserved',
+  inputs: [
+    { name: 'collateralReservationId', type: 'uint256', indexed: true },
+    { name: 'agentVault', type: 'address', indexed: true },
+    { name: 'minter', type: 'address', indexed: true },
+    { name: 'valueUBA', type: 'uint256', indexed: false },
+    { name: 'feeUBA', type: 'uint256', indexed: false },
+    { name: 'firstUnderlyingBlock', type: 'uint256', indexed: false },
+    { name: 'lastUnderlyingBlock', type: 'uint256', indexed: false },
+    { name: 'lastUnderlyingTimestamp', type: 'uint256', indexed: false },
+    { name: 'paymentAddress', type: 'string', indexed: false },
+    { name: 'paymentReference', type: 'bytes32', indexed: false },
+    { name: 'executorAddress', type: 'address', indexed: false },
+    { name: 'executorFeeNatWei', type: 'uint256', indexed: false },
+  ],
+} as const;
+
+const FLARE_LOG_RANGE = 30n; // Coston2 RPC max block range for getLogs
+
+interface CollateralReservedData {
+  valueUBA: bigint;
+  feeUBA: bigint;
+  paymentAddress: string;
+  paymentReference: string;
+}
+
+async function pollCollateralReserved(opts: {
+  assetManager: `0x${string}`;
+  minter: `0x${string}`;
+  chain: 'flare-coston2' | 'flare-mainnet';
+  fromBlock: bigint;
+  timeoutMs: number;
+  pollMs: number;
+}): Promise<CollateralReservedData | null> {
+  const meta = CHAIN_META[opts.chain];
+  const pub = createPublicClient({
+    chain: defineChain({ id: meta.chainId, name: meta.name, nativeCurrency: { name: 'FLR', symbol: 'FLR', decimals: 18 }, rpcUrls: { default: { http: [meta.rpcUrl] } } }),
+    transport: http(meta.rpcUrl),
+  });
+  const start = Date.now();
+  let scanFrom = opts.fromBlock;
+  while (Date.now() - start < opts.timeoutMs) {
+    const tip = await pub.getBlockNumber();
+    // Scan in chunks of FLARE_LOG_RANGE
+    while (scanFrom <= tip) {
+      const to = scanFrom + FLARE_LOG_RANGE - 1n > tip ? tip : scanFrom + FLARE_LOG_RANGE - 1n;
+      try {
+        const logs = await pub.getLogs({
+          address: opts.assetManager,
+          event: collateralReservedEvent,
+          args: { minter: opts.minter },
+          fromBlock: scanFrom,
+          toBlock: to,
+        } as any);
+        if (logs.length > 0) {
+          const ev = (logs[0] as any).args;
+          return {
+            valueUBA: ev.valueUBA,
+            feeUBA: ev.feeUBA,
+            paymentAddress: ev.paymentAddress,
+            paymentReference: ev.paymentReference,
+          };
+        }
+      } catch { /* skip failed chunk */ }
+      scanFrom = to + 1n;
+    }
+    await sleep(opts.pollMs);
+  }
+  return null;
 }
 
 export const xrpl_to_fxrp_bridge = async (
@@ -1964,89 +2030,128 @@ export const xrpl_to_fxrp_bridge = async (
       );
     }
 
-    // Auto-discover operator XRPL + first agent vault in parallel.
+    const network = args.chain === 'flare-mainnet' ? 'mainnet' : 'testnet';
+
+    // Auto-discover operator XRPL + first agent vault.
     const [operators, agents] = await Promise.all([
       flare.getOperatorXrplAddresses(args.chain),
       flare.getAgentVaults(args.chain),
     ]);
     if (operators.length === 0) {
-      return fail(
-        'No operator XRPL addresses are registered on this Flare network.',
-        'FLARE_NOT_CONFIGURED',
-        'Verify the chain has Smart Accounts deployed; check https://dev.flare.network/smart-accounts/overview.',
-      );
+      return fail('No operator XRPL addresses registered.', 'FLARE_NOT_CONFIGURED');
     }
     if (agents.length === 0) {
-      return fail(
-        'No FAssets agent vaults are registered on this Flare network.',
-        'NO_AGENT_VAULTS',
-        'Wait for an agent to register, or pass a known agent_vault_id explicitly.',
-      );
+      return fail('No FAssets agent vaults registered.', 'NO_AGENT_VAULTS');
     }
 
     const operatorXrpl = args.operator_xrpl ?? operators[0]!;
-    const agentVaultId = args.agent_vault_id
-      ? BigInt(args.agent_vault_id)
-      : agents[0]!.id;
-
+    const agentVaultId = args.agent_vault_id ? BigInt(args.agent_vault_id) : agents[0]!.id;
     const xrplAddress = await xrplAddressFromSeed(seed);
-    const personalAccount = await flare.getPersonalAccountAddress(
-      xrplAddress,
-      args.chain,
-    );
-    const reference = flare.encodeCollateralReservationReference({
+    const personalAccount = await flare.getPersonalAccountAddress(xrplAddress, args.chain);
+    const assetManager = await flare.getAssetManagerFXRPAddress(args.chain);
+
+    // Encode the collateral reservation instruction (32 bytes).
+    const instruction = flare.encodeCollateralReservationReference({
       agentVaultId,
       lots: BigInt(args.lots),
     });
-    const fxrpBalanceBefore = await flare.getFxrpBalance(
-      personalAccount,
-      args.chain,
-    );
+    const memoHex = instruction.slice(2); // strip 0x
 
-    const submitted = await submitXrplPayment({
+    const fxrpBalanceBefore = await flare.getFxrpBalance(personalAccount, args.chain);
+
+    // Snapshot Flare block BEFORE sending instruction so we don't miss the event.
+    const meta = CHAIN_META[args.chain];
+    const pub = createPublicClient({
+      chain: defineChain({ id: meta.chainId, name: meta.name, nativeCurrency: { name: 'FLR', symbol: 'FLR', decimals: 18 }, rpcUrls: { default: { http: [meta.rpcUrl] } } }),
+      transport: http(meta.rpcUrl),
+    });
+    const blockBefore = await pub.getBlockNumber();
+
+    // ── Step 1: Send 1-drop instruction Payment to operator ──────────────
+    const instrTx = await submitXrplMemoPayment({
       seed,
       destination: operatorXrpl,
-      amountXrp: args.amount_xrp,
-      reference,
-      network: args.chain === 'flare-mainnet' ? 'mainnet' : 'testnet',
+      amountDrops: '1',
+      memoHex,
+      network,
     });
 
     const baseResult = {
-      xrpl_tx_hash: submitted.hash,
+      instruction_tx_hash: instrTx.hash,
       xrpl_address: xrplAddress,
       operator_xrpl: operatorXrpl,
       agent_vault_id: agentVaultId.toString(),
       personal_account_address: personalAccount,
-      reference,
+      instruction,
       fxrp_balance_before: fxrpBalanceBefore.toString(),
     };
 
     if (!args.wait) {
-      return ok({ step: 'submitted', ...baseResult });
+      return ok({ step: 'instruction_submitted', ...baseResult });
     }
 
+    // ── Step 2: Poll for CollateralReserved event ────────────────────────
+    const reserveTimeout = Math.min(args.timeout_ms, 120_000);
+    const reserved = await pollCollateralReserved({
+      assetManager: assetManager as `0x${string}`,
+      minter: personalAccount as `0x${string}`,
+      chain: args.chain,
+      fromBlock: blockBefore > 0n ? blockBefore - 1n : 0n,
+      timeoutMs: reserveTimeout,
+      pollMs: args.poll_interval_ms,
+    });
+
+    if (!reserved) {
+      return fail(
+        `CollateralReserved event not found within ${Math.round(reserveTimeout / 1000)}s. Operator may be offline.`,
+        'COLLATERAL_RESERVE_TIMEOUT',
+        `Instruction tx: ${instrTx.hash}. Check operator status or retry later.`,
+      );
+    }
+
+    // ── Step 3: Send XRP to agent's underlying address ───────────────────
+    const totalDrops = (reserved.valueUBA + reserved.feeUBA).toString();
+    const paymentRefHex = reserved.paymentReference.startsWith('0x')
+      ? reserved.paymentReference.slice(2)
+      : reserved.paymentReference;
+
+    const mintTx = await submitXrplMemoPayment({
+      seed,
+      destination: reserved.paymentAddress,
+      amountDrops: totalDrops,
+      memoHex: paymentRefHex,
+      network,
+    });
+
+    // ── Step 4: Poll FXRP balance ────────────────────────────────────────
+    const deadline = args.timeout_ms - (Date.now() - Date.now()); // reset
     const start = Date.now();
     let fxrpBalanceAfter = fxrpBalanceBefore;
-    while (Date.now() - start < args.timeout_ms) {
+    const remainingMs = Math.max(args.timeout_ms - reserveTimeout, 60_000);
+    while (Date.now() - start < remainingMs) {
       await sleep(args.poll_interval_ms);
       fxrpBalanceAfter = await flare.getFxrpBalance(personalAccount, args.chain);
       if (fxrpBalanceAfter > fxrpBalanceBefore) break;
     }
-    const minted = fxrpBalanceAfter > fxrpBalanceBefore;
-    const duration_ms = Date.now() - start;
 
+    const minted = fxrpBalanceAfter > fxrpBalanceBefore;
     if (!minted) {
       return fail(
-        `FXRP balance did not increase within ${Math.round(args.timeout_ms / 1000)}s. The mint may still complete asynchronously; the XRPL Payment ${submitted.hash} is on-chain.`,
+        `FXRP not yet minted. Mint tx ${mintTx.hash} is on-chain; operator may still process it.`,
         'MINT_TIMEOUT',
-        `Track ${personalAccount} on https://coston2-explorer.flare.network or re-run with wait=false to skip polling.`,
+        `Track ${personalAccount} on https://coston2-explorer.flare.network.`,
       );
     }
 
     return ok({
       step: 'minted',
       ...baseResult,
+      mint_tx_hash: mintTx.hash,
+      payment_address: reserved.paymentAddress,
+      payment_reference: reserved.paymentReference,
+      value_uba: reserved.valueUBA.toString(),
+      fee_uba: reserved.feeUBA.toString(),
       fxrp_balance_after: fxrpBalanceAfter.toString(),
-      duration_ms,
+      duration_ms: Date.now() - start,
     });
   });

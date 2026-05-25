@@ -67,21 +67,28 @@
   },
   "dependencies": {
     "commander": "^12.1.0",
-    "n-payment": "^0.15.0",
+    "n-payment": ">=0.15.0",
     "prompts": "^2.4.2",
     "viem": "^2.21.0",
+    "xrpl": "^4.6.0",
     "zod": "^3.23.0",
     "zod-to-json-schema": "^3.23.0"
   },
   "peerDependencies": {
-    "n-payment": ">=0.15.0",
+    "@aave/client": ">=1.0.0",
     "@spacenetwork/spacerouter": ">=1.5.0",
-    "@aave/client": ">=1.0.0"
+    "n-payment": ">=0.15.0"
   },
   "peerDependenciesMeta": {
-    "n-payment": { "optional": true },
-    "@spacenetwork/spacerouter": { "optional": true },
-    "@aave/client": { "optional": true }
+    "n-payment": {
+      "optional": true
+    },
+    "@spacenetwork/spacerouter": {
+      "optional": true
+    },
+    "@aave/client": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
