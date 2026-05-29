@@ -230,7 +230,6 @@ export async function loadFlareSdk(): Promise<unknown | null> {
   if (_sdkProbed) return _sdk;
   _sdkProbed = true;
   try {
-    // @ts-expect-error optional peer dep
     const mod = (await import('n-payment')) as Record<string, unknown>;
     _sdk =
       (mod as { flare?: unknown }).flare ??

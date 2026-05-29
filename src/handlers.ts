@@ -17,6 +17,7 @@ import {
   type Address,
   type Hex,
 } from 'viem';
+import { randomBytes } from 'node:crypto';
 import type { ChainKey, ToolContext, ToolResult } from './tools.js';
 import { ensureWallet, type WalletRecord } from './wallet.js';
 import { CHAIN_META } from './faucet.js';
@@ -47,13 +48,11 @@ import * as flare from './flare.js';
 
 // ─── n-payment lazy loader ───────────────────────────────────────────────────
 // Optional peer dep — types only present when the SDK is actually installed.
-// @ts-expect-error optional peer dep
 type NP = typeof import('n-payment');
 let _np: NP | null = null;
 async function np(): Promise<NP> {
   if (_np) return _np;
   try {
-    // @ts-expect-error optional peer dep
     _np = (await import('n-payment')) as NP;
     return _np;
   } catch {
@@ -240,7 +239,13 @@ export const pay: NonNullable<unknown> = async (
     const client = createPaymentClient({
       chains: [chain] as never,
       ows: { wallet: w.name, privateKey: w.privateKey } as never,
-      goat: goat ?? undefined,
+      // v0.17: enable swap-only USDC acquisition on GOAT so a 402 challenge
+      // self-funds USDC from PegBTC when the agent is short. swapOnly() has
+      // no cross-chain risk; caps are $5/hr, $50/day. No new flag exposed —
+      // every existing `pay` call on goat-* benefits transparently.
+      goat: goat
+        ? { ...goat, autoFund: goatAutoFundPreset('swap', await np()) }
+        : undefined,
       morph: morph ?? undefined,
       stellar,
     } as never);
@@ -760,15 +765,13 @@ export const policy_check = async (
       ? PolicyEngine.fromConfig(policyConfig)
       : new PolicyEngine([]);
     const guard = new SpendingGuard(engine, new AuditLog());
-    const decision = await (guard as {
-      evaluate: (req: unknown) => Promise<unknown>;
-    }).evaluate({
+    const decision = guard.check({
       to: args.to,
       amount: BigInt(args.amount_micros),
       chain: args.chain,
       reason: args.reason,
       callerWallet: ctx.walletName,
-    });
+    } as never);
     return ok(decision);
   });
 
@@ -996,7 +999,10 @@ export const permit2_approve = async (
     if (guard) return guard;
     const { Permit2Signer } = await np();
     const w = await getWallet(ctx);
-    const signer = new Permit2Signer(w.privateKey as `0x${string}`, CHAIN_META[args.chain].chainId);
+    const signer = new (Permit2Signer as unknown as new (pk: `0x${string}`, chainId: number) => unknown)(
+      w.privateKey as `0x${string}`,
+      CHAIN_META[args.chain].chainId,
+    );
     const params = {
       token: args.token,
       amount: BigInt(args.amount),
@@ -1874,7 +1880,6 @@ type XrplLib = any;
 
 async function loadXrplLib(): Promise<XrplLib> {
   try {
-    // @ts-expect-error optional transitive dep
     return await import('xrpl');
   } catch {
     throw Object.assign(
@@ -2155,3 +2160,152 @@ export const xrpl_to_fxrp_bridge = async (
       duration_ms: Date.now() - start,
     });
   });
+
+// ────────────────────────────────────────────────────────────────────────────
+// GOAT USDC Acquisition Router (n-payment v0.17)
+//
+// One handler, one preset selector, one price probe, one error-hint mapper.
+// Reuses the existing lazy `np()` seam — no new SDK boot path. The router
+// itself is stateless and per-call, so no module-level singleton needed.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Preset factory — keeps the swap-only path the only externalised mode for now. */
+type GoatAutoFundMode = 'swap' | 'safe' | 'aggressive' | 'testnet';
+function goatAutoFundPreset(mode: GoatAutoFundMode, sdk: NP): unknown {
+  const p = (sdk as unknown as { GoatAcquisitionPresets: Record<GoatAutoFundMode | 'safeDefaults' | 'swapOnly', () => unknown> }).GoatAcquisitionPresets;
+  switch (mode) {
+    case 'swap':       return (p as any).swapOnly();
+    case 'safe':       return (p as any).safeDefaults();
+    case 'aggressive': return (p as any).aggressive();
+    case 'testnet':    return (p as any).testnet();
+  }
+}
+
+/** Resolve target USDC wei from the schema's mutually-exclusive amount inputs. */
+async function resolveTargetUsdcWei(args: {
+  amount_usdc?: string;
+  amount_btc?: string;
+}): Promise<{ ok: true; wei: bigint } | { ok: false; result: ToolResult }> {
+  if (args.amount_usdc) return { ok: true, wei: parseUnits(args.amount_usdc, 6) };
+  if (!args.amount_btc) {
+    return { ok: false, result: fail('amount_usdc or amount_btc required', 'MISSING_ARG') };
+  }
+  // amount_btc → USDC: single CoinGecko price probe (no new dep). The router's
+  // estimate() returns the OKU pool quote, but it's keyed on targetUsdcWei not
+  // sourceBtc, so we convert once via a public oracle. Fail with a clear
+  // GOAT_BTC_PRICE_UNAVAILABLE so the agent can fall back to amount_usdc.
+  try {
+    const r = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd',
+    );
+    if (!r.ok) throw new Error(`CoinGecko ${r.status}`);
+    const j = (await r.json()) as { bitcoin?: { usd?: number } };
+    const usd = j.bitcoin?.usd;
+    if (!usd || usd <= 0) throw new Error('no price in response');
+    // amount_btc * usd → USDC, with 6-dec precision via integer math.
+    const btcMicroUsd = BigInt(Math.round(Number(args.amount_btc) * usd * 1_000_000));
+    if (btcMicroUsd <= 0n) {
+      return { ok: false, result: fail('Computed USDC target is zero.', 'GOAT_BTC_PRICE_UNAVAILABLE') };
+    }
+    return { ok: true, wei: btcMicroUsd };
+  } catch (e) {
+    return {
+      ok: false,
+      result: fail(
+        `Could not derive USDC target from amount_btc: ${(e as Error).message}`,
+        'GOAT_BTC_PRICE_UNAVAILABLE',
+        'Pass amount_usdc directly (e.g. "1.0") to skip the BTC→USDC oracle hop.',
+      ),
+    };
+  }
+}
+
+/** Inject actionable, chain-specific hints onto SDK error codes for the agent. */
+function decorateGoatError(
+  err: Error & { code?: string; hint?: string },
+  chain: 'goat-testnet' | 'goat-mainnet',
+): ToolResult {
+  const code = err.code ?? 'GOAT_ACQUIRE_FAILED';
+  let hint = err.hint;
+  if (code === 'GOAT_NO_VIABLE_PATH' && chain === 'goat-testnet') {
+    hint = 'Wallet has no WGBTC to swap on goat-testnet. Drip at https://faucet.testnet3.goat.network and retry.';
+  } else if (code === 'GOAT_AUTOFUND_LIMIT_EXCEEDED') {
+    hint = 'Hourly/daily acquisition cap hit (swapOnly defaults: $5/hr, $50/day). Wait or use the `aggressive` preset for higher caps.';
+  } else if (code === 'GOAT_SWAP_SLIPPAGE_EXCEEDED') {
+    hint = 'OKU quote breached max_slippage_bps. Retry with a higher max_slippage_bps (e.g. 100).';
+  }
+  return fail(err.message, code, hint);
+}
+
+/** Build a stable idempotency key when the caller didn't pass one. */
+function defaultIdempotencyKey(walletName: string, chain: string, targetUsdcWei: bigint): string {
+  return `skill-${walletName}-${chain}-${targetUsdcWei}-${randomBytes(4).toString('hex')}`;
+}
+
+export const goat_swap_to_usdc = async (
+  args: {
+    amount_usdc?: string;
+    amount_btc?: string;
+    max_slippage_bps: number;
+    chain: 'goat-testnet' | 'goat-mainnet';
+    dry_run: boolean;
+    idempotency_key?: string;
+  },
+  ctx: ToolContext,
+): Promise<ToolResult> => {
+  // Run outside wrap() so we can map SDK error codes through decorateGoatError.
+  try {
+    const guard = guardMainnet(args.chain, ctx);
+    if (guard) return guard;
+
+    const target = await resolveTargetUsdcWei(args);
+    if (!target.ok) return target.result;
+    const targetUsdcWei = target.wei;
+
+    const sdk = await np();
+    const ows = await getOWSWallet(ctx);
+    const config = {
+      ...(goatAutoFundPreset('swap', sdk) as Record<string, unknown>),
+      maxSlippageBps: args.max_slippage_bps,
+    };
+    const guardObj = new (sdk as any).SpendingGuard(
+      new (sdk as any).PolicyEngine([]),
+      new (sdk as any).AuditLog(),
+    );
+    const router = new (sdk as any).UsdcAcquisitionRouter({
+      goatChain: args.chain,
+      wallet: ows,
+      config,
+      guard: guardObj,
+    });
+
+    const idempotencyKey =
+      args.idempotency_key ?? defaultIdempotencyKey(ctx.walletName, args.chain, targetUsdcWei);
+
+    const result = await router.acquire({
+      targetUsdcWei,
+      idempotencyKey,
+      dryRun: args.dry_run,
+    });
+
+    return ok({
+      status: result.status,
+      acquired_wei: result.acquired?.toString?.() ?? '0',
+      path: result.quote?.path,
+      fee_bps: result.quote?.feeBps,
+      slippage_bps: result.quote?.slippageBps ?? args.max_slippage_bps,
+      receipt: result.receipt
+        ? {
+            tx_hash: result.receipt.txHash,
+            chain: result.receipt.chain,
+            usdc_received_wei: result.receipt.usdcReceivedWei?.toString?.(),
+          }
+        : undefined,
+      correlation_id: result.correlationId,
+      idempotency_key: idempotencyKey,
+      dry_run: args.dry_run,
+    });
+  } catch (e) {
+    return decorateGoatError(e as Error & { code?: string; hint?: string }, args.chain);
+  }
+};

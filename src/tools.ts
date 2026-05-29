@@ -592,6 +592,31 @@ export const TOOLS: ReadonlyArray<Tool> = [
     handler: h.spacerouter_admin as never,
   }),
 
+  // ─── GOAT USDC Acquisition Router (n-payment v0.17) ─────────────────────
+  def({
+    name: 'goat_swap_to_usdc',
+    description:
+      'Swap BTC (native gas on GOAT) to USDC on GOAT Network via the n-payment v0.17 USDC Acquisition Router using the swap-only path (PegBTC→USDC on OKU/Uniswap V3). Provide exactly one of amount_usdc or amount_btc. dry_run=true returns the OKU quote without spending. Default chain: goat-testnet; goat-mainnet is gated by testnetMode. No GOAT facilitator creds required (on-chain only).',
+    schema: z.object({
+      amount_usdc: z
+        .string()
+        .regex(/^\d+(\.\d{1,6})?$/, 'use a decimal like "1.0"')
+        .optional(),
+      amount_btc: z
+        .string()
+        .regex(/^\d+(\.\d{1,8})?$/, 'use a decimal with up to 8 sat-precision digits')
+        .optional(),
+      max_slippage_bps: z.number().int().min(1).max(1000).default(50),
+      chain: z.enum(['goat-testnet', 'goat-mainnet']).default('goat-testnet'),
+      dry_run: z.boolean().default(false),
+      idempotency_key: z.string().min(1).max(64).optional()
+        .describe('Optional caller-supplied id for SDK replay-safety. Defaults to a fresh random key per call.'),
+    }).refine((v) => Boolean(v.amount_usdc) !== Boolean(v.amount_btc), {
+      message: 'Provide exactly one of amount_usdc or amount_btc.',
+    }),
+    handler: h.goat_swap_to_usdc as never,
+  }),
+
   // ─── Flare FAssets — XRP → FXRP bridge via Smart Accounts ────────────────
   def({
     name: 'xrpl_to_fxrp_bridge',

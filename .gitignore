@@ -83,6 +83,21 @@ service-account*.json
 gcp-credentials*.json
 firebase-credentials*.json
 
+# Generic credential extensions (not covered by .env / wallet sections above)
+*.token
+*-secrets.json
+*.creds
+
+# ─── n-payment-skill host installer outputs (local dev only) ────────────────
+# Produced by `n-payment-skill install --target {cursor,windsurf,continue,copilot}`
+# when the skill is exercised against its OWN source tree. These belong in
+# consumer repos, never in this skill's repo. Root-anchored so a consumer's
+# legitimate .github/ workflows are NOT affected when this file is reused.
+/.continuerules
+/.windsurfrules
+/.cursor/
+/.github/copilot-instructions.md
+
 # ─── IDE / editor ────────────────────────────────────────────────────────────
 .idea/
 .vscode/
@@ -95,6 +110,8 @@ firebase-credentials*.json
 
 # ─── OS noise ────────────────────────────────────────────────────────────────
 .DS_Store
+._*
+.AppleDouble
 Thumbs.db
 desktop.ini
 ehthumbs.db
