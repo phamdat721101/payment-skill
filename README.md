@@ -31,7 +31,7 @@ npx -y github:phamdat721101/payment-skill
 
 ## What you get
 
-39 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
+38 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
 Windsurf, Continue, GitHub Copilot, generic MCP, OpenAI / ChatGPT, and
 LlamaIndex** — Node-native, with a 15-line Python snippet for the rest
 (no separate Python package needed).
@@ -58,9 +58,7 @@ LlamaIndex** — Node-native, with a 15-line Python snippet for the rest
 | 18 | `stream_pay` | Per-second streaming USDC payments. |
 | 19 | `ap2_mandate` | Sign / verify AP2 mandates and intents. |
 | 20 | `policy_check` | Evaluate sends against the PolicyEngine. |
-| 21 | `morph_reference_key` | Attach / query a Morph Reference Key (merchant order ID linked on-chain). |
-| 22 | `morph_altfee_pay` | STUB: pay gas in USDC / USDT0 / BGB on Morph (awaiting SDK upstream). |
-| 23 | `morph_passkey_pay` | STUB: passwordless WebAuthn payment on Morph (awaiting SDK upstream). |
+| 21 | `morph_pay` | 🟢 Unified Morph Network entry-point. One tool, five modes — `mode: "x402" \| "reference-attach" \| "reference-query" \| "altfee" \| "passkey"`. Default chain is `morph-hoodi-testnet` (sponsored EIP-3009 via a self-hosted facilitator); `morph-mainnet` uses HMAC creds when `MORPH_ACCESS_KEY` / `MORPH_ACCESS_SECRET` are set. AltFee + Passkey return `MORPH_*_NOT_IMPLEMENTED` until the SDK ships them. |
 | 24 | `spacerouter_pay` | 🛰️ Send a paid HTTP request through the SpaceRouter residential-proxy network. Region + IP-type knobs. |
 | 25 | `spacerouter_escrow` | 🛰️ Manage on-chain SPACE escrow on Creditcoin: `deposit / balance / initiate-withdrawal / execute-withdrawal / cancel-withdrawal / status`. |
 | 26 | `spacerouter_sync_receipts` | 🛰️ Push pending Leg-1 receipts on-chain into the SpaceRouter escrow. |
@@ -300,7 +298,7 @@ flowchart LR
     user[("User\nin AI chat")] -->|"pay for X"| host
     host{{"AI host\n(Claude / Kiro / Cursor / Gemini / …)"}} -->|MCP stdio<br/>tools/call| binary
     binary[["n-payment-skill CLI\n(Node, single binary)"]] --> tools
-    tools["39 tool handlers"] --> sdk
+    tools["38 tool handlers"] --> sdk
     sdk[("n-payment SDK + skill adapters\nx402 / MPP / GOAT / Stellar / XRPL / Solana / Morph / SpaceRouter")] --> chain[("Chain RPCs\nUSDC / SPACE contracts")]
     binary --> wallet[(["~/.n-payment/wallets/\ndefault.json + spacerouter.json\n(0600)"])]
 ```
@@ -439,7 +437,7 @@ def call(method, params=None):
     return json.loads(_proc.stdout.readline())
 
 call("initialize")
-tools = call("tools/list")["result"]["tools"]               # all 37 tools
+tools = call("tools/list")["result"]["tools"]               # all 38 tools
 print(call("tools/call",
            {"name": "negotiate",
             "arguments": {"price_micros": 10_000, "caller_reputation": 95}}))
@@ -481,7 +479,8 @@ n-payment-skill config set telemetry off         # default
 | Env var | Used by | Purpose |
 |---|---|---|
 | `GOAT_API_KEY` / `GOAT_API_SECRET` / `GOAT_MERCHANT_ID` | `pay` (GOAT chains) | x402 facilitator credentials |
-| `MORPH_ACCESS_KEY` / `MORPH_ACCESS_SECRET` | `pay` (Morph chains) | HMAC credentials for the Morph x402 Facilitator (register at https://morph-rails.morph.network/x402) |
+| `MORPH_ACCESS_KEY` / `MORPH_ACCESS_SECRET` | `pay` / `morph_pay` (`morph-mainnet`) | HMAC credentials for the Morph x402 Facilitator (register at https://morph-rails.morph.network/x402). Optional — leave unset for soft-mode. |
+| `MORPH_HOODI_FACILITATOR_URL` | `pay` / `morph_pay` (`morph-hoodi-testnet`) | URL of a self-hosted `createMorphHoodiFacilitator` (n-payment v0.18+). Default Hoodi flow is sponsored EIP-3009; no Morph creds required. |
 | `STELLAR_SECRET_KEY` | `pay` / `check_balance` (Stellar chains) | Stellar `S…` secret key. If unset, derived deterministically from the existing wallet file. |
 | `STELLAR_OZ_API_KEY` | `pay` (Stellar mainnet) | OpenZeppelin Relayer x402 API key (generate at https://channels.openzeppelin.com/gen). Testnet uses Coinbase free facilitator. |
 | `NPAYMENT_ESCROW_CONTRACT` | `create_escrow` | ERC-8183 contract address |
@@ -519,8 +518,8 @@ payment-skill/
 ├── package.json
 ├── src/
 │   ├── cli.ts            # commander-based CLI (setup default, install, mcp, …)
-│   ├── tools.ts          # SINGLE source of truth: 39 tool defs + types
-│   ├── handlers.ts       # 39 handler implementations (n-payment SDK + Aave V3 + Flare FAssets)
+│   ├── tools.ts          # SINGLE source of truth: 38 tool defs + types
+│   ├── handlers.ts       # 38 handler implementations (n-payment SDK + Aave V3 + Flare FAssets; inline Morph reference-key helpers)
 │   ├── schema.ts         # zod → JSON Schema / OpenAI fn-call
 │   ├── exports.ts        # paste-ready exports (chatgpt-gpt, llamaindex, openai)
 │   ├── mcp.ts            # transport-agnostic dispatcher + stdio + HTTP
@@ -529,7 +528,7 @@ payment-skill/
 │   ├── wallet.ts         # ~/.n-payment/wallets/<name>.json (chmod 0600)
 │   ├── config.ts         # ~/.n-payment/config.json
 │   ├── faucet.ts         # CHAIN_META + Circle/Tempo faucet + doctor
-│   ├── morph.ts          # Morph adapter: HMAC, x402 client, Reference Key
+│   ├── morph.ts          # (removed in v1.1.0 — folded into handlers.ts; HMAC + x402 client come from n-payment SDK)
 │   ├── stellar.ts        # Stellar adapter: keypair derivation, SEP-7 URI, Horizon
 │   ├── spacerouter.ts    # SpaceRouter (SpaceCoin): dedicated wallet, escrow ABI, gateway client, dry-run
 │   ├── flare.ts          # Flare FAssets / Smart Accounts: state lookup + reference encoder
@@ -548,7 +547,8 @@ payment-skill/
 | `n-payment is not installed` | `npm i n-payment` (peer dep) |
 | `MAINNET_GUARD` | `n-payment-skill config set testnetMode false` |
 | `GOAT_CREDS_MISSING` | `export GOAT_API_KEY=… GOAT_API_SECRET=… GOAT_MERCHANT_ID=…` |
-| `MORPH_CREDS_MISSING` | `export MORPH_ACCESS_KEY=… MORPH_ACCESS_SECRET=…` (register at https://morph-rails.morph.network/x402) |
+| `MORPH_HOODI_FACILITATOR_MISSING` | Morph Hoodi requires a self-hosted facilitator. Run `pnpm tsx node_modules/n-payment/examples/morph-hoodi-facilitator.ts` then pass `facilitator_url` (or set `MORPH_HOODI_FACILITATOR_URL`). |
+| `MORPH_ALTFEE_NOT_IMPLEMENTED` / `MORPH_PASSKEY_NOT_IMPLEMENTED` | Awaiting upstream — track at https://github.com/phamdat721101/n-payment/issues |
 | `MORPH_AUTH` | Re-check key/secret + clock skew (timestamp must be within ±30s of server) |
 | `MORPH_RATE_LIMITED` | Exceeded 10 QPS per Access Key; backoff and retry |
 | `REFERENCE_KEY_NOT_FOUND` | Reference Key launches with Morph mainnet (April 2026); 404 expected on Hoodi |

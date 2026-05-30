@@ -2,8 +2,19 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { TOOLS, TOOL_BY_NAME, TOOL_NAMES, Chain, CHAIN_KEYS } from '../src/tools.js';
 
 describe('tool registry', () => {
-  it('exposes exactly 40 tools', () => {
-    expect(TOOLS).toHaveLength(40);
+  it('exposes exactly 38 tools', () => {
+    expect(TOOLS).toHaveLength(38);
+  });
+
+  it('Morph features are unified under a single morph_pay tool', () => {
+    expect(TOOL_NAMES).toContain('morph_pay');
+    for (const dropped of [
+      'morph_reference_key',
+      'morph_altfee_pay',
+      'morph_passkey_pay',
+    ]) {
+      expect(TOOL_NAMES).not.toContain(dropped);
+    }
   });
 
   it('has unique tool names', () => {

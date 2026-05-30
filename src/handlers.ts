@@ -22,14 +22,6 @@ import type { ChainKey, ToolContext, ToolResult } from './tools.js';
 import { ensureWallet, type WalletRecord } from './wallet.js';
 import { CHAIN_META } from './faucet.js';
 import {
-  attachReferenceKey,
-  queryReferenceKey,
-  ReferenceKeyNotFound,
-  MORPH_ALTFEE_TRACKING_URL,
-  MORPH_PASSKEY_TRACKING_URL,
-  type MorphCreds,
-} from './morph.js';
-import {
   buildStellarPaymentUri,
   fetchStellarBalance,
   isStellarConfigError,
@@ -60,6 +52,41 @@ async function np(): Promise<NP> {
       'n-payment SDK is not installed. Run `npm i n-payment` (or `pnpm add n-payment`).',
     );
   }
+}
+
+// ─── Morph helpers (inlined — only the bits the SDK doesn't already export) ──
+// Reference Key is a Morph Rails feature with no SDK equivalent today.
+// Everything else (HMAC sign, x402 client, adapter) comes from `n-payment`.
+export const MORPH_ALTFEE_TRACKING_URL =
+  'https://github.com/phamdat721101/n-payment/issues?q=morph+altfee';
+export const MORPH_PASSKEY_TRACKING_URL =
+  'https://github.com/phamdat721101/n-payment/issues?q=morph+passkey';
+const MORPH_RAILS_BASE_URL = 'https://morph-rails.morph.network';
+
+/** Encode a reference key as 0x-hex calldata (UTF-8, capped at 32 bytes). Pure. */
+export function attachReferenceKey(reference: string): string {
+  if (!reference) throw new Error('reference must be non-empty');
+  return '0x' + Buffer.from(reference, 'utf8').subarray(0, 32).toString('hex');
+}
+
+/** Look up a Morph Rails reference key. Throws REFERENCE_KEY_NOT_FOUND on 404. */
+export async function queryReferenceKey(
+  reference: string,
+  fetchFn: typeof fetch = fetch,
+  baseUrl: string = MORPH_RAILS_BASE_URL,
+): Promise<unknown> {
+  const res = await fetchFn(
+    `${baseUrl}/v1/reference-keys/${encodeURIComponent(reference)}`,
+  );
+  if (res.status === 404) {
+    const err = new Error(`Reference key not found: ${reference}`) as Error & {
+      code: 'REFERENCE_KEY_NOT_FOUND';
+    };
+    err.code = 'REFERENCE_KEY_NOT_FOUND';
+    throw err;
+  }
+  if (!res.ok) throw new Error(`Morph Rails returned ${res.status} for ${reference}`);
+  return res.json();
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -145,10 +172,49 @@ function pickGoatCreds(env: NodeJS.ProcessEnv): {
   };
 }
 
-function pickMorphCreds(env: NodeJS.ProcessEnv): MorphCreds | null {
+function pickMorphCreds(
+  env: NodeJS.ProcessEnv,
+): { accessKey: string; secretKey: string } | null {
   const { MORPH_ACCESS_KEY, MORPH_ACCESS_SECRET } = env;
   if (!MORPH_ACCESS_KEY || !MORPH_ACCESS_SECRET) return null;
   return { accessKey: MORPH_ACCESS_KEY, secretKey: MORPH_ACCESS_SECRET };
+}
+
+/**
+ * Single source of truth for the SDK's `morph` config block. Used by both
+ * `pay` and `morph_pay` so the credential-policy is identical everywhere.
+ *
+ *   • Hoodi + facilitator URL → soft-mode + facilitatorUrl (works without HMAC creds).
+ *   • Hoodi + no URL          → actionable hint pointing at the upstream example.
+ *   • Mainnet + creds         → strict HMAC mode.
+ *   • Mainnet + no creds      → soft-mode (SDK warns; payment fails fast at /verify).
+ */
+function buildMorphConfig(
+  chain: ChainKey,
+  ctx: ToolContext,
+  opts: { facilitatorUrl?: string },
+): { ok: true; cfg: Record<string, unknown> } | { ok: false; err: ToolResult } {
+  const facilitatorUrl =
+    opts.facilitatorUrl ?? ctx.env.MORPH_HOODI_FACILITATOR_URL;
+  if (chain === 'morph-hoodi-testnet') {
+    if (!facilitatorUrl) {
+      return {
+        ok: false,
+        err: fail(
+          'Morph Hoodi requires a self-hosted facilitator URL.',
+          'MORPH_HOODI_FACILITATOR_MISSING',
+          'Run `pnpm tsx node_modules/n-payment/examples/morph-hoodi-facilitator.ts` and pass facilitator_url, or set MORPH_HOODI_FACILITATOR_URL.',
+        ),
+      };
+    }
+    return { ok: true, cfg: { strict: false, facilitatorUrl } };
+  }
+  // morph-mainnet
+  const creds = pickMorphCreds(ctx.env);
+  return {
+    ok: true,
+    cfg: creds ? { ...creds } : { strict: false },
+  };
 }
 
 // ─── Stateful singletons (per-process) ───────────────────────────────────────
@@ -222,13 +288,11 @@ export const pay: NonNullable<unknown> = async (
         'Set the three env vars or switch to base-sepolia for testing.',
       );
     }
-    const morph = chain.startsWith('morph-') ? pickMorphCreds(ctx.env) : null;
-    if (chain.startsWith('morph-') && !morph) {
-      return fail(
-        'Morph chain requires MORPH_ACCESS_KEY / MORPH_ACCESS_SECRET env vars.',
-        'MORPH_CREDS_MISSING',
-        'Register at https://morph-rails.morph.network/x402 to obtain HMAC credentials.',
-      );
+    let morph: Record<string, unknown> | undefined;
+    if (chain.startsWith('morph-')) {
+      const built = buildMorphConfig(chain as ChainKey, ctx, {});
+      if (!built.ok) return built.err;
+      morph = built.cfg;
     }
     let stellar: { secretKey: string; channelsApiKey?: string } | undefined;
     if (chain.startsWith('stellar-')) {
@@ -246,7 +310,7 @@ export const pay: NonNullable<unknown> = async (
       goat: goat
         ? { ...goat, autoFund: goatAutoFundPreset('swap', await np()) }
         : undefined,
-      morph: morph ?? undefined,
+      morph,
       stellar,
     } as never);
     const init: Record<string, unknown> = { method: args.method ?? 'GET' };
@@ -1037,45 +1101,102 @@ export const direct_transfer = async (
   });
 
 // ────────────────────────────────────────────────────────────────────────────
-// Morph-specific handlers
+// Morph unified handler
 // ────────────────────────────────────────────────────────────────────────────
 
-export const morph_reference_key = async (args: {
-  action: 'attach' | 'query';
-  reference: string;
-}): Promise<ToolResult> =>
+type MorphPayArgs = {
+  mode: 'x402' | 'reference-attach' | 'reference-query' | 'altfee' | 'passkey';
+  url?: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  body?: string;
+  chain?: 'morph-mainnet' | 'morph-hoodi-testnet';
+  reference?: string;
+  facilitator_url?: string;
+  gas_token?: 'usdc' | 'usdt0' | 'bgb';
+  passkey_credential_id?: string;
+};
+
+export const morph_pay = async (
+  args: MorphPayArgs,
+  ctx: ToolContext,
+): Promise<ToolResult> =>
   wrap(async () => {
-    if (args.action === 'attach') {
+    if (args.mode === 'reference-attach') {
+      if (!args.reference) {
+        return fail('reference is required for reference-attach.', 'BAD_INPUT');
+      }
       return ok({ calldata: attachReferenceKey(args.reference) });
     }
-    try {
-      const record = await queryReferenceKey(args.reference);
-      return ok(record);
-    } catch (e) {
-      if (e instanceof ReferenceKeyNotFound) {
-        return fail(
-          e.message,
-          e.code,
-          'Reference Key requires Morph mainnet (April 2026+). On Hoodi testnet the API may return 404.',
-        );
+
+    if (args.mode === 'reference-query') {
+      if (!args.reference) {
+        return fail('reference is required for reference-query.', 'BAD_INPUT');
       }
-      throw e;
+      try {
+        return ok(await queryReferenceKey(args.reference));
+      } catch (e) {
+        const err = e as Error & { code?: string };
+        if (err.code === 'REFERENCE_KEY_NOT_FOUND') {
+          return fail(
+            err.message,
+            'REFERENCE_KEY_NOT_FOUND',
+            'Reference Key requires Morph mainnet (April 2026+). On Hoodi testnet the API may return 404.',
+          );
+        }
+        throw e;
+      }
     }
+
+    if (args.mode === 'passkey') {
+      return fail(
+        'Morph Passkey payments are pending n-payment SDK upstream support.',
+        'MORPH_PASSKEY_NOT_IMPLEMENTED',
+        `Track progress at ${MORPH_PASSKEY_TRACKING_URL}`,
+      );
+    }
+
+    // Modes that talk to the SDK: x402 + altfee.
+    if (!args.url) {
+      return fail(`url is required for mode=${args.mode}.`, 'BAD_INPUT');
+    }
+    const chain = args.chain ?? 'morph-hoodi-testnet';
+    const guard = guardMainnet(chain, ctx);
+    if (guard) return guard;
+
+    const built = buildMorphConfig(chain, ctx, {
+      facilitatorUrl: args.facilitator_url,
+    });
+    if (!built.ok) return built.err;
+
+    if (args.mode === 'altfee') {
+      // The SDK's altFee path throws NOT_IMPLEMENTED today — surface a stable
+      // skill-side code so agents don't break when upstream ships it.
+      return fail(
+        'Morph AltFee (gas-in-stablecoin) is pending n-payment SDK upstream support.',
+        'MORPH_ALTFEE_NOT_IMPLEMENTED',
+        `Track progress at ${MORPH_ALTFEE_TRACKING_URL}`,
+      );
+    }
+
+    // mode === 'x402'
+    const w = await getWallet(ctx);
+    const { createPaymentClient } = await np();
+    const client = createPaymentClient({
+      chains: [chain] as never,
+      ows: { wallet: w.name, privateKey: w.privateKey } as never,
+      morph: built.cfg as never,
+    } as never);
+
+    const init: Record<string, unknown> = { method: args.method ?? 'GET' };
+    if (args.body) init.body = args.body;
+    const opts = args.reference ? { referenceKey: args.reference } : undefined;
+
+    const res = await (
+      client as { fetchWithPayment: (u: string, i?: unknown, o?: unknown) => Promise<Response> }
+    ).fetchWithPayment(args.url, init, opts);
+    const text = await res.text();
+    return ok({ status: res.status, body: text.slice(0, 4000), chain });
   });
-
-export const morph_altfee_pay = async (): Promise<ToolResult> =>
-  fail(
-    'AltFee Type-0x7F gas-in-USDC transactions are pending n-payment SDK upstream support.',
-    'STUB',
-    `Track progress at ${MORPH_ALTFEE_TRACKING_URL}`,
-  );
-
-export const morph_passkey_pay = async (): Promise<ToolResult> =>
-  fail(
-    'Morph Passkey payments are pending n-payment SDK upstream support.',
-    'STUB',
-    `Track progress at ${MORPH_PASSKEY_TRACKING_URL}`,
-  );
 
 // ────────────────────────────────────────────────────────────────────────────
 // SpaceRouter (Spacecoin) handlers — all on creditcoin-mainnet

@@ -336,40 +336,38 @@ export const TOOLS: ReadonlyArray<Tool> = [
   }),
 
   def({
-    name: 'morph_reference_key',
+    name: 'morph_pay',
     description:
-      'Attach or query a Morph Reference Key — a merchant-defined order ID linked on-chain. attach returns calldata bytes to embed in the next tx; query reads the linked tx record from the Morph Rails API.',
+      'Unified Morph Network entry-point. One tool, five modes:\n' +
+      '  • mode="x402" — pay any URL via Morph x402. Default chain=morph-hoodi-testnet (sponsored EIP-3009 via local facilitator); morph-mainnet uses HMAC creds when present.\n' +
+      '  • mode="reference-attach" — return 0x-hex calldata to embed a merchant order ID in the next tx.\n' +
+      '  • mode="reference-query" — read a Reference Key record from the Morph Rails REST API.\n' +
+      '  • mode="altfee" — pay with USDC/USDT0/BGB as gas (Type-0x7F). Awaiting SDK upstream — surfaces NOT_IMPLEMENTED with a tracking link.\n' +
+      '  • mode="passkey" — passwordless WebAuthn payment. Awaiting SDK upstream.',
     schema: z.object({
-      action: z.enum(['attach', 'query']),
-      reference: z.string().min(1).max(32),
+      mode: z.enum([
+        'x402',
+        'reference-attach',
+        'reference-query',
+        'altfee',
+        'passkey',
+      ]),
+      url: z.string().url().optional()
+        .describe('Required for x402 / altfee. The paid endpoint to call.'),
+      method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).default('GET'),
+      body: z.string().optional(),
+      chain: z.enum(['morph-mainnet', 'morph-hoodi-testnet'])
+        .default('morph-hoodi-testnet'),
+      reference: z.string().min(1).max(32).optional()
+        .describe('Reference Key (also fed into the x402 retry header).'),
+      facilitator_url: z.string().url().optional()
+        .describe('Hoodi only: URL of a self-hosted createMorphHoodiFacilitator. Defaults to env.MORPH_HOODI_FACILITATOR_URL.'),
+      gas_token: z.enum(['usdc', 'usdt0', 'bgb']).optional()
+        .describe('altfee mode only.'),
+      passkey_credential_id: z.string().optional()
+        .describe('passkey mode only.'),
     }),
-    handler: h.morph_reference_key as never,
-  }),
-
-  def({
-    name: 'morph_altfee_pay',
-    description:
-      'STUB: Pay gas in USDC / USDT0 / BGB on Morph via AltFee (Type-0x7F transaction). Awaiting n-payment SDK upstream support.',
-    schema: z.object({
-      to: Address,
-      amount_usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
-      gas_token: z.enum(['usdc', 'usdt0', 'bgb']).default('usdc'),
-      chain: z.enum(['morph-mainnet', 'morph-hoodi-testnet']),
-    }),
-    handler: h.morph_altfee_pay as never,
-  }),
-
-  def({
-    name: 'morph_passkey_pay',
-    description:
-      'STUB: Passwordless onchain payment on Morph using a registered Passkey (WebAuthn). Awaiting n-payment SDK upstream support.',
-    schema: z.object({
-      recipient: Address,
-      amount_usdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
-      passkey_credential_id: z.string().optional(),
-      chain: z.enum(['morph-mainnet', 'morph-hoodi-testnet']),
-    }),
-    handler: h.morph_passkey_pay as never,
+    handler: h.morph_pay as never,
   }),
 
   // ─── XRPL (Ripple) tools ─────────────────────────────────────────────────

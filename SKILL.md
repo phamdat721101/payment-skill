@@ -37,8 +37,11 @@ triggers:
   - goat network
   - http 402
   - pay on morph
+  - pay on morph hoodi
+  - morph hoodi
+  - morph x402
+  - morph reference key
   - morph altfee
-  - reference key
   - morph passkey
   - pay on stellar
   - stellar usdc
@@ -134,13 +137,11 @@ n-payment SDK code with the wallet at `~/.n-payment/wallets/<name>.json`.
 | "pay over time / streaming payment" | `stream_pay` |
 | "AP2 mandate / verifiable intent" | `ap2_mandate` |
 | "is this payment safe / policy check" | `policy_check` (always run before mainnet sends) |
-| "tag this payment with order id / reference key" | `morph_reference_key` |
-| "pay gas in usdc / altfee" (Morph) | `morph_altfee_pay` (STUB) |
-| "passwordless payment / passkey" (Morph) | `morph_passkey_pay` (STUB) |
+| "tag this payment with order id / reference key" / "pay on morph hoodi" / "morph altfee" / "morph passkey" | `morph_pay` (unified — `mode: "x402" \| "reference-attach" \| "reference-query" \| "altfee" \| "passkey"`; default chain is `morph-hoodi-testnet`) |
 | "earn yield on usdc / supply to aave / deposit to aave / lend my usdc / aave demo" | `aave_yield` (action='demo' for one-prompt happy path) |
 | "bridge XRP to FXRP / mint FXRP / bridge to Flare / FAsset mint" | `xrpl_to_fxrp_bridge` (one-line; auto-discovers operator XRPL + first agent vault on Coston2) |
 
-## Tools (39)
+## Tools (38)
 
 <!-- TOOLS:START -->
 | # | Tool | Description |
@@ -165,9 +166,24 @@ n-payment SDK code with the wallet at `~/.n-payment/wallets/<name>.json`.
 | 18 | `stream_pay` | Open or update a streaming payment that flows USDC per-second to a recipient (v0.8 StreamingPaymentManager). |
 | 19 | `ap2_mandate` | Sign or verify an AP2 verifiable intent / checkout mandate (n-payment v0.8 AP2Client). |
 | 20 | `policy_check` | Evaluate a payment request against the configured PolicyEngine (allow / deny / require_review). Always run before mainnet sends. |
-| 21 | `morph_reference_key` | Attach or query a Morph Reference Key — a merchant-defined order ID linked on-chain. attach returns calldata bytes to embed in the next tx; query reads the linked tx record from the Morph Rails API. |
-| 22 | `morph_altfee_pay` | STUB: Pay gas in USDC / USDT0 / BGB on Morph via AltFee (Type-0x7F transaction). Awaiting n-payment SDK upstream support. |
-| 23 | `morph_passkey_pay` | STUB: Passwordless onchain payment on Morph using a registered Passkey (WebAuthn). Awaiting n-payment SDK upstream support. |
+| 21 | `morph_pay` | Unified Morph Network entry-point. One tool, five modes:   • mode="x402" — pay any URL via Morph x402. Default chain=morph-hoodi-testnet (sponsored EIP-3009 via local facilitator); morph-mainnet uses HMAC creds when present.   • mode="reference-attach" — return 0x-hex calldata to embed a merchant order ID in the next tx.   • mode="reference-query" — read a Reference Key record from the Morph Rails REST API.   • mode="altfee" — pay with USDC/USDT0/BGB as gas (Type-0x7F). Awaiting SDK upstream — surfaces NOT_IMPLEMENTED with a tracking link.   • mode="passkey" — passwordless WebAuthn payment. Awaiting SDK upstream. |
+| 22 | `xrpl_pay` | Send RLUSD on XRPL to a destination address. |
+| 23 | `xrpl_balance` | Check RLUSD balance on XRPL. |
+| 24 | `xrpl_vault` | Manage XRPL native vaults: create, deposit, withdraw, info, exchange-rate. |
+| 25 | `xrpl_oracle` | Get DIA oracle price feed on XRPL (RLUSD, XRP, BTC, ETH). |
+| 26 | `xrpl_trust_line` | Ensure RLUSD trust line exists on the agent XRPL account. |
+| 27 | `circle_nanopay` | Pay a URL via Circle Gateway gas-free nanopayments (EIP-3009). Requires CIRCLE_API_KEY env. |
+| 28 | `stellar_escrow` | Manage milestone-based escrow on Stellar via Trustless Work: create, fund, submit-milestone, approve, release, dispute, status. |
+| 29 | `agent_card` | Generate or read an A2A Agent Card (/.well-known/agent.json). |
+| 30 | `permit2_approve` | Sign an off-chain Permit2 (EIP-712) approval for gasless token spending. |
+| 31 | `direct_transfer` | Send ERC-20 tokens directly (no 402 flow). Mainnet guard applies. |
+| 32 | `aave_yield` | Earn yield on USDC via Aave V3 on Base Sepolia. action=demo runs the one-prompt happy path (gas guard → auto-faucet → approve → supply 1 USDC → return aUSDC). supply/withdraw take amount_usdc; position reads aUSDC + USDC balances. Override AAVE_POOL_ADDRESS to use a different V3 Pool. Hybrid path: n-payment v0.13 → @aave/client → viem-direct. |
+| 33 | `spacerouter_pay` | Send a paid HTTP request through the SpaceRouter residential-proxy network. Pays in SPACE on Creditcoin via the dedicated wallet at ~/.n-payment/wallets/spacerouter.json. Region/IP-type optional. Returns body + node_id + country. |
+| 34 | `spacerouter_escrow` | Manage the on-chain SPACE escrow at TokenPaymentEscrow on Creditcoin: deposit \| balance \| initiate-withdrawal \| execute-withdrawal (after 5-day timelock) \| cancel-withdrawal \| status. |
+| 35 | `spacerouter_sync_receipts` | Push pending Leg-1 (Consumer→Gateway) receipts on-chain so they settle into the SpaceRouter escrow. Returns accepted/rejected UUID arrays + pending count. |
+| 36 | `spacerouter_admin` | Manage SpaceRouter API keys via a SpaceRouter coordination/admin API instance. Advanced — set SR_ADMIN_URL to point at your admin endpoint. Actions: create \| list \| revoke. |
+| 37 | `goat_swap_to_usdc` | Swap BTC (native gas on GOAT) to USDC on GOAT Network via the n-payment v0.17 USDC Acquisition Router using the swap-only path (PegBTC→USDC on OKU/Uniswap V3). Provide exactly one of amount_usdc or amount_btc. dry_run=true returns the OKU quote without spending. Default chain: goat-testnet; goat-mainnet is gated by testnetMode. No GOAT facilitator creds required (on-chain only). |
+| 38 | `xrpl_to_fxrp_bridge` | Bridge XRP from XRPL into FXRP on Flare Coston2 via Flare Smart Accounts (proof-based mint). Auto-discovers the operator XRPL address and the first agent vault on-chain, encodes the FXRP collateralReservation reference, submits one XRPL Payment, then polls the user's PersonalAccount FXRP balance. Default: 10 XRP / 1 lot. Sync: blocks up to 180s. Requires XRPL_SEED env var (testnet seed). |
 <!-- TOOLS:END -->
 
 Full input schemas:
