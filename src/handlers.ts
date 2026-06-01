@@ -207,7 +207,17 @@ function buildMorphConfig(
         ),
       };
     }
-    return { ok: true, cfg: { strict: false, facilitatorUrl } };
+    // v0.20: Hoodi USDC reports name() = 'USDC' (NOT Circle's 'USD Coin').
+    // Override the EIP-712 domain so signature recovery matches the contract.
+    return {
+      ok: true,
+      cfg: {
+        strict: false,
+        facilitatorUrl,
+        tokenName: 'USDC',
+        tokenVersion: '2',
+      },
+    };
   }
   // morph-mainnet
   const creds = pickMorphCreds(ctx.env);

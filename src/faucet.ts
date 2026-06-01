@@ -139,6 +139,9 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
     name: 'Morph Hoodi Testnet',
     chainId: 2910,
     rpcUrl: 'https://rpc-hoodi.morph.network',
+    // v0.18+ Hoodi USDC (operator-supplied test token; matches n-payment chains.ts).
+    // Required so check_balance and morph_pay can resolve the asset on Hoodi.
+    usdc: '0x7433b41C6c5e1d58D4Da99483609520255ab661B',
     faucet: null,
     manualFaucetUrl: 'https://bridge-hoodi.morph.network',
   },
