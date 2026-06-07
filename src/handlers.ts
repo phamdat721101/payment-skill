@@ -38,6 +38,16 @@ import {
 } from './spacerouter.js';
 import * as flare from './flare.js';
 
+// v0.23 — iUSD on Initia (USDC EVM → iUSD bridge corridor).
+import {
+  buildInitiaConfig,
+  createInitiaPaymentClient,
+  initiaErrorOf,
+  isInitiaChain,
+  readIusdCaps,
+  type InitiaChain,
+} from './initia.js';
+
 // ─── n-payment lazy loader ───────────────────────────────────────────────────
 // Optional peer dep — types only present when the SDK is actually installed.
 type NP = typeof import('n-payment');
@@ -288,6 +298,22 @@ export const pay: NonNullable<unknown> = async (
     const chain = args.chain ?? ctx.defaultChain;
     const guard = guardMainnet(chain, ctx);
     if (guard) return guard;
+
+    // v0.23: initia-* chains route through the iUSD bridge orchestrator so a
+    // 402(cosmos-msgsend) challenge auto-bridges USDC→iUSD when short.
+    if (isInitiaChain(chain)) {
+      try {
+        const wired = await createInitiaPaymentClient({ ctx, destChain: chain });
+        const init: Record<string, unknown> = { method: args.method ?? 'GET' };
+        if (args.body) init.body = args.body;
+        const res = await wired.client.fetchWithPayment(args.url, init);
+        const text = await res.text();
+        return ok({ status: res.status, body: text.slice(0, 4000) });
+      } catch (e) {
+        return initiaErrorOf(e);
+      }
+    }
+
     const w = await getWallet(ctx);
     const { createPaymentClient } = await np();
     const goat = chain.startsWith('goat-') ? pickGoatCreds(ctx.env) : null;
@@ -344,6 +370,19 @@ export const check_balance = async (
   wrap(async () => {
     const chain = args.chain ?? ctx.defaultChain;
     const w = await getWallet(ctx);
+    if (isInitiaChain(chain)) {
+      // Delegate to the iusd_bridge balance action (single source of truth).
+      return iusd_bridge(
+        {
+          action: 'balance',
+          dest_chain: chain,
+          method: 'GET',
+          timeout_ms: 60_000,
+          dry_run: false,
+        },
+        ctx,
+      );
+    }
     if (chain.startsWith('stellar-')) {
       const cfg = pickStellarConfig(ctx.env, w.privateKey, chain);
       if (isStellarConfigError(cfg)) return fail(cfg.error, cfg.code, cfg.hint);
@@ -2711,3 +2750,198 @@ export const xrpfi_redeem_bridge = async (
       latency_ms: Date.now() - start,
     });
   });
+
+
+// ────────────────────────────────────────────────────────────────────────────
+// iUSD on Initia (n-payment v0.23) — USDC-EVM → iUSD bridge corridor
+//
+// One handler, four actions (quote / balance / execute / pay_url). All Skip /
+// cosmjs / orchestrator wiring lives in `src/initia.ts` (SRP). Mainnet guard,
+// env-driven caps, idempotency-keyed execute, post-balance read.
+// ────────────────────────────────────────────────────────────────────────────
+
+interface IusdBridgeArgs {
+  action: 'quote' | 'balance' | 'execute' | 'pay_url';
+  amount_iusd?: string;
+  source_chain?: ChainKey;
+  dest_chain: InitiaChain;
+  recipient?: string;
+  address?: string;
+  url?: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  body?: string;
+  max_per_transfer?: string;
+  timeout_ms: number;
+  dry_run: boolean;
+  idempotency_key?: string;
+}
+
+/** Decimal USD string → 6-dec base-unit bigint. iUSD on Initia is 6-decimals. */
+const toIusdWei = (decimal: string): bigint => parseUnits(decimal, 6);
+const fromIusdWei = (wei: bigint): string => formatUnits(wei, 6);
+
+/** Clamp caller's per-transfer override to env ceiling (iUSD-specific). */
+const clampIusdPerTransfer = (req: string | undefined, ceiling: string): string =>
+  req && Number(req) <= Number(ceiling) ? req : ceiling;
+
+export const iusd_bridge = async (
+  args: IusdBridgeArgs,
+  ctx: ToolContext,
+): Promise<ToolResult> => {
+  try {
+    // ─── balance: read-only, no signing required when `address` supplied ──
+    if (args.action === 'balance') {
+      const cfg = buildInitiaConfig(ctx.env, args.dest_chain, {
+        requireMnemonic: !args.address, // own-address read needs the signer to derive
+      });
+      if (!cfg.ok) return cfg.err;
+      const sdk = (await import('n-payment')) as any;
+      const initia = new sdk.InitiaClient({
+        chainKey: args.dest_chain,
+        signer: args.address ? undefined : await sdk.mnemonicSigner(cfg.cfg.mnemonic),
+      });
+      const owner = args.address ?? (await initia.getAddress());
+      const [iusdWei, uinitWei] = await Promise.all([
+        initia.getBalance(owner, cfg.cfg.iusdDenom) as Promise<bigint>,
+        initia.getBalance(owner, 'uinit') as Promise<bigint>,
+      ]);
+      return ok({
+        address: owner,
+        chain: args.dest_chain,
+        iusd: fromIusdWei(iusdWei),
+        native_init: formatUnits(uinitWei, 6),
+        denom: cfg.cfg.iusdDenom,
+      });
+    }
+
+    // ─── quote / execute / pay_url all need PaymentClient + orchestrator ──
+    // Mainnet guard for any signing path.
+    if (args.action === 'execute' || args.action === 'pay_url') {
+      const guard = guardMainnet(args.dest_chain, ctx);
+      if (guard) return guard;
+    }
+
+    const wired = await createInitiaPaymentClient({
+      ctx,
+      destChain: args.dest_chain,
+      sourceChain: args.source_chain,
+    });
+
+    // ─── quote: corridor selector — read-only ────────────────────────────
+    if (args.action === 'quote') {
+      const cfg = buildInitiaConfig(ctx.env, args.dest_chain);
+      if (!cfg.ok) return cfg.err;
+      const sdk = (await import('n-payment')) as any;
+      const amountWei = toIusdWei(args.amount_iusd!);
+      const w = await getWallet(ctx);
+      const meta = CHAIN_META[wired.sourceChain];
+      let usdcWei = 0n;
+      if (meta.usdc) {
+        const pub = createPublicClient({
+          chain: viemChain(wired.sourceChain),
+          transport: http(meta.rpcUrl),
+        });
+        usdcWei = (await pub.readContract({
+          address: meta.usdc,
+          abi: erc20Abi,
+          functionName: 'balanceOf',
+          args: [w.address],
+        })) as bigint;
+      }
+      const iusdWei = (await wired.initia.getIusdBalance()) as bigint;
+      const decision = sdk.selectIusdCorridor({
+        destChain: args.dest_chain,
+        requiredAmountIusd: amountWei,
+        holdings: {
+          iusd: { [args.dest_chain]: iusdWei },
+          usdc: { [wired.sourceChain]: usdcWei },
+        },
+        skipHealthy: true,
+      });
+      return ok({
+        corridor: decision?.corridor ?? 'no-route',
+        source_chain: wired.sourceChain,
+        dest_chain: args.dest_chain,
+        amount_iusd: args.amount_iusd,
+        denom: cfg.cfg.iusdDenom,
+        holdings: {
+          iusd_wei: iusdWei.toString(),
+          usdc_wei: usdcWei.toString(),
+        },
+      });
+    }
+
+    // ─── execute: bridge USDC → iUSD via orchestrator.ensureIusd ─────────
+    if (args.action === 'execute') {
+      const caps = readIusdCaps(ctx.env);
+      const perTransfer = clampIusdPerTransfer(args.max_per_transfer, caps.perTransfer);
+      if (Number(args.amount_iusd!) > Number(perTransfer)) {
+        return fail(
+          `amount_iusd ${args.amount_iusd} exceeds per-transfer cap ${perTransfer} iUSD.`,
+          'IUSD_CAPS_EXCEEDED',
+          'Lower amount_iusd or raise IUSD_MAX_PER_TRANSFER env.',
+        );
+      }
+      const recipient = args.recipient ?? (await wired.initia.getAddress());
+      const requiredAmount = toIusdWei(args.amount_iusd!);
+
+      if (args.dry_run) {
+        return ok({
+          dry_run: true,
+          source_chain: wired.sourceChain,
+          dest_chain: args.dest_chain,
+          recipient,
+          amount_iusd: args.amount_iusd,
+        });
+      }
+
+      const start = Date.now();
+      const result: any = await Promise.race([
+        wired.orchestrator.ensureIusd({ requiredAmount, recipient }),
+        new Promise((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                Object.assign(new Error('iUSD bridge timed out.'), {
+                  code: 'IUSD_BRIDGE_TIMEOUT',
+                  hint: `Increase timeout_ms (current ${args.timeout_ms}); check Skip API status.`,
+                }),
+              ),
+            args.timeout_ms,
+          ),
+        ),
+      ]);
+      const postWei = (await wired.initia.getIusdBalance()) as bigint;
+      const idempotencyKey =
+        args.idempotency_key ??
+        `${ctx.walletName}-${args.dest_chain}-${args.amount_iusd}-${start}`;
+      return ok({
+        corridor: result?.corridor ?? 'skip-api',
+        tx_hashes: result?.txHashes ?? result?.tx_hashes ?? [],
+        iusd_landed: fromIusdWei(postWei),
+        recipient,
+        source_chain: wired.sourceChain,
+        dest_chain: args.dest_chain,
+        duration_ms: Date.now() - start,
+        idempotency_key: idempotencyKey,
+      });
+    }
+
+    // ─── pay_url: 402(cosmos-msgsend) flow with auto-bridge ──────────────
+    if (args.action === 'pay_url') {
+      const init: Record<string, unknown> = { method: args.method ?? 'GET' };
+      if (args.body) init.body = args.body;
+      const res = await wired.client.fetchWithPayment(args.url!, init);
+      const text = await res.text();
+      return ok({
+        status: res.status,
+        body: text.slice(0, 4000),
+        chain: args.dest_chain,
+      });
+    }
+
+    return fail(`Unknown action: ${(args as { action: string }).action}`, 'INVALID_ACTION');
+  } catch (e) {
+    return initiaErrorOf(e);
+  }
+};

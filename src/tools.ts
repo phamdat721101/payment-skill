@@ -41,6 +41,9 @@ export const CHAIN_KEYS = [
   'optimism-mainnet',
   'ink-mainnet',
   'unichain-mainnet',
+  // iUSD on Initia (n-payment v0.23) — Cosmos-SDK + USDC bridge corridor.
+  'initia-testnet',
+  'initia-mainnet',
 ] as const;
 
 export type ChainKey = (typeof CHAIN_KEYS)[number];
@@ -708,6 +711,78 @@ export const TOOLS: ReadonlyArray<Tool> = [
         idempotency_key: z.string().min(1).max(64).optional(),
       }),
     handler: h.xrpfi_redeem_bridge as never,
+  }),
+
+  // ─── iUSD on Initia — USDC EVM → iUSD bridge (n-payment v0.23) ─────────
+  def({
+    name: 'iusd_bridge',
+    description:
+      'iUSD on Initia (n-payment v0.23). One tool, four actions:\n' +
+      '  • action="quote"    — pure read: corridor selector + Skip API quote (no tx, no signer).\n' +
+      '  • action="balance"  — read iUSD + native uinit balance on initia-* chains.\n' +
+      '  • action="execute"  — bridge USDC from an EVM source → iUSD on Initia via Skip API.\n' +
+      '  • action="pay_url"  — call any iUSD-paywalled URL (cosmos-msgsend 402); auto-bridges if iUSD short.\n' +
+      'Default source_chain=base-sepolia → dest_chain=initia-testnet (testnet-first). ' +
+      'Requires INITIA_MNEMONIC and INITIA_IUSD_DENOM_TESTNET (or _MAINNET) env vars for any signing path. ' +
+      'Conservative caps: IUSD_MAX_PER_TRANSFER=50, IUSD_MAX_PER_DAY=200 (env-overridable).',
+    schema: z
+      .object({
+        action: z.enum(['quote', 'balance', 'execute', 'pay_url']),
+        amount_iusd: z
+          .string()
+          .regex(/^\d+(\.\d{1,6})?$/, 'decimal iUSD, e.g. "0.5"')
+          .optional()
+          .describe('Required for quote / execute.'),
+        source_chain: Chain.optional()
+          .describe('USDC source. Default: base-sepolia (testnet) / base-mainnet (mainnet).'),
+        dest_chain: z
+          .enum(['initia-testnet', 'initia-mainnet'])
+          .default('initia-testnet'),
+        recipient: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Initia bech32 address. Default: agent\'s own derived Initia address.'),
+        address: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('balance only: foreign address to read (no mnemonic required).'),
+        url: z.string().url().optional()
+          .describe('pay_url only: the iUSD-paywalled endpoint.'),
+        method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).default('GET'),
+        body: z.string().optional(),
+        max_per_transfer: z
+          .string()
+          .regex(/^\d+(\.\d{1,6})?$/, 'decimal iUSD')
+          .optional()
+          .describe('Per-call override; clamped to env IUSD_MAX_PER_TRANSFER.'),
+        timeout_ms: z
+          .number()
+          .int()
+          .min(10_000)
+          .max(1_800_000)
+          .default(600_000),
+        dry_run: z.boolean().default(false),
+        idempotency_key: z.string().min(1).max(64).optional(),
+      })
+      .superRefine((v, ctx) => {
+        if ((v.action === 'quote' || v.action === 'execute') && !v.amount_iusd) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'amount_iusd is required for action=quote and action=execute.',
+            path: ['amount_iusd'],
+          });
+        }
+        if (v.action === 'pay_url' && !v.url) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'url is required for action=pay_url.',
+            path: ['url'],
+          });
+        }
+      }),
+    handler: h.iusd_bridge as never,
   }),
 ];
 

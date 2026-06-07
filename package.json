@@ -67,7 +67,7 @@
   },
   "dependencies": {
     "commander": "^12.1.0",
-    "n-payment": ">=0.22.1",
+    "n-payment": ">=0.23.0",
     "prompts": "^2.4.2",
     "viem": "^2.21.0",
     "xrpl": "^4.6.0",
@@ -76,9 +76,12 @@
   },
   "peerDependencies": {
     "@aave/client": ">=1.0.0",
+    "@cosmjs/proto-signing": ">=0.32.0",
+    "@cosmjs/stargate": ">=0.32.0",
+    "@skip-go/client": ">=1.0.0",
     "@spacenetwork/spacerouter": ">=1.5.0",
     "ethers": ">=6.0.0",
-    "n-payment": ">=0.22.1"
+    "n-payment": ">=0.23.0"
   },
   "peerDependenciesMeta": {
     "n-payment": {
@@ -88,6 +91,15 @@
       "optional": true
     },
     "@aave/client": {
+      "optional": true
+    },
+    "@cosmjs/stargate": {
+      "optional": true
+    },
+    "@cosmjs/proto-signing": {
+      "optional": true
+    },
+    "@skip-go/client": {
       "optional": true
     },
     "ethers": {

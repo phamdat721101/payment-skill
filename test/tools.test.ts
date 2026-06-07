@@ -2,8 +2,8 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { TOOLS, TOOL_BY_NAME, TOOL_NAMES, Chain, CHAIN_KEYS } from '../src/tools.js';
 
 describe('tool registry', () => {
-  it('exposes exactly 39 tools', () => {
-    expect(TOOLS).toHaveLength(39);
+  it('exposes exactly 40 tools', () => {
+    expect(TOOLS).toHaveLength(40);
   });
 
   it('Morph features are unified under a single morph_pay tool', () => {
@@ -280,5 +280,69 @@ describe('SKILL.md ↔ registry — natural 1-line prompts route to the new tool
   it('SKILL.md preamble surfaces GOAT_CREDS for the agent', () => {
     expect(skill).toMatch(/GOAT_CREDS:/);
     expect(skill).toMatch(/GOAT_AUTOFUND:/);
+  });
+});
+
+
+// ─── iUSD on Initia (n-payment v0.23) ────────────────────────────────────────
+describe('iusd_bridge — schema', () => {
+  const tool = TOOL_BY_NAME.iusd_bridge!;
+
+  it('is registered exactly once', () => {
+    expect(tool).toBeDefined();
+    expect(TOOL_NAMES.filter((n) => n === 'iusd_bridge')).toHaveLength(1);
+  });
+
+  it('chain enum gained initia-testnet and initia-mainnet', () => {
+    expect(CHAIN_KEYS).toContain('initia-testnet');
+    expect(CHAIN_KEYS).toContain('initia-mainnet');
+  });
+
+  it('quote / execute require amount_iusd', () => {
+    for (const action of ['quote', 'execute'] as const) {
+      const r = tool.schema.safeParse({ action, dest_chain: 'initia-testnet' });
+      expect(r.success).toBe(false);
+    }
+  });
+
+  it('balance does NOT require amount_iusd', () => {
+    const r = tool.schema.safeParse({ action: 'balance', dest_chain: 'initia-testnet' });
+    expect(r.success).toBe(true);
+  });
+
+  it('pay_url requires url', () => {
+    const r1 = tool.schema.safeParse({ action: 'pay_url', dest_chain: 'initia-testnet' });
+    expect(r1.success).toBe(false);
+    const r2 = tool.schema.safeParse({
+      action: 'pay_url',
+      dest_chain: 'initia-testnet',
+      url: 'https://api.example.com/x',
+    });
+    expect(r2.success).toBe(true);
+  });
+
+  it('default dest_chain is initia-testnet (testnet-first)', () => {
+    const r = tool.schema.safeParse({ action: 'balance' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.dest_chain).toBe('initia-testnet');
+  });
+
+  it('rejects bad amount_iusd format', () => {
+    const r = tool.schema.safeParse({
+      action: 'quote',
+      amount_iusd: 'not-a-number',
+      dest_chain: 'initia-testnet',
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('accepts a happy-path execute payload', () => {
+    const r = tool.schema.safeParse({
+      action: 'execute',
+      amount_iusd: '0.5',
+      source_chain: 'base-sepolia',
+      dest_chain: 'initia-testnet',
+    });
+    expect(r.success).toBe(true);
   });
 });

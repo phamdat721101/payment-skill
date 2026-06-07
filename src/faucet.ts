@@ -231,6 +231,21 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
     rpcUrl: 'https://mainnet.unichain.org',
     rlusd: '0x8d58C0C60B8D6b88Fa98B291a646dB34d0F98258',
   },
+  // ─── Initia (Cosmos-SDK) — iUSD via n-payment v0.23 ──────────────────────
+  // chainId=0 matches the convention for non-EVM chains (XRPL/Stellar/Solana).
+  // rpcUrl points at the LCD/REST endpoint InitiaClient consumes.
+  'initia-testnet': {
+    name: 'Initia Testnet (initiation-2)',
+    chainId: 0,
+    rpcUrl: 'https://rest.testnet.initia.xyz',
+    faucet: null,
+    manualFaucetUrl: 'https://faucet.testnet.initia.xyz',
+  },
+  'initia-mainnet': {
+    name: 'Initia (interwoven-1)',
+    chainId: 0,
+    rpcUrl: 'https://rest.initia.xyz',
+  },
 };
 
 export const isTestnetChain = (chain: ChainKey): boolean =>
