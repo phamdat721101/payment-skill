@@ -43,6 +43,12 @@ interface ChainMeta {
   stellarUsdcIssuer?: string;
   /** Aave V3 Pool address on this chain. Override at runtime via AAVE_POOL_ADDRESS. */
   aave?: { pool: Address; usdc?: Address };
+  /**
+   * RLUSD ERC-20 address (n-payment v0.22.1 multichain rails). Set on chains
+   * where Ripple has deployed RLUSD natively or via Wormhole NTT. XRPL is
+   * keyed by issuer account, not address — see n-payment SDK for that.
+   */
+  rlusd?: Address;
 }
 
 export const CHAIN_META: Record<ChainKey, ChainMeta> = {
@@ -95,6 +101,7 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
     chainId: 8453,
     rpcUrl: 'https://mainnet.base.org',
     usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    rlusd: '0x8d58C0C60B8D6b88Fa98B291a646dB34d0F98258',
   },
   'xrpl-testnet': {
     name: 'XRPL Testnet',
@@ -195,6 +202,34 @@ export const CHAIN_META: Record<ChainKey, ChainMeta> = {
     name: 'Flare',
     chainId: 14,
     rpcUrl: 'https://flare-api.flare.network/ext/C/rpc',
+  },
+  // ─── RLUSD multichain rails (n-payment v0.22.1) ──────────────────────────
+  // RLUSD address & RPC defaults; Wormhole NTT signer keys come from env per
+  // chain (ETHEREUM_KEY, OPTIMISM_KEY, INK_KEY, UNICHAIN_KEY). Mainnet only;
+  // testnet RLUSD is XRPL-side via the existing xrpl-testnet entry.
+  'ethereum-mainnet': {
+    name: 'Ethereum',
+    chainId: 1,
+    rpcUrl: 'https://eth.llamarpc.com',
+    rlusd: '0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD',
+  },
+  'optimism-mainnet': {
+    name: 'Optimism',
+    chainId: 10,
+    rpcUrl: 'https://mainnet.optimism.io',
+    rlusd: '0x8d58C0C60B8D6b88Fa98B291a646dB34d0F98258',
+  },
+  'ink-mainnet': {
+    name: 'Ink',
+    chainId: 57073,
+    rpcUrl: 'https://rpc-gel.inkonchain.com',
+    rlusd: '0x8d58C0C60B8D6b88Fa98B291a646dB34d0F98258',
+  },
+  'unichain-mainnet': {
+    name: 'Unichain',
+    chainId: 130,
+    rpcUrl: 'https://mainnet.unichain.org',
+    rlusd: '0x8d58C0C60B8D6b88Fa98B291a646dB34d0F98258',
   },
 };
 

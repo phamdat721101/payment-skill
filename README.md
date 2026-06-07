@@ -31,7 +31,7 @@ npx -y github:phamdat721101/payment-skill
 
 ## What you get
 
-38 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
+39 tools, exposed identically to **Claude Code, Kiro, Gemini CLI, Cursor,
 Windsurf, Continue, GitHub Copilot, generic MCP, OpenAI / ChatGPT, and
 LlamaIndex** — Node-native, with a 15-line Python snippet for the rest
 (no separate Python package needed).
@@ -65,6 +65,7 @@ LlamaIndex** — Node-native, with a 15-line Python snippet for the rest
 | 27 | `spacerouter_admin` | 🛰️ Manage SpaceRouter API keys via a coordination/admin API instance (advanced; needs `SR_ADMIN_URL`). |
 | 28 | `aave_yield` | 💰 Earn yield on USDC via Aave V3 on Base Sepolia. `action='demo'` is the one-prompt happy path: gas guard → auto-faucet → approve → supply 1 USDC → return aUSDC. Hybrid: n-payment v0.13 → @aave/client → viem-direct. |
 | 29 | `xrpl_to_fxrp_bridge` | 🔥 One-line XRP → FXRP bridge on Flare Coston2 via Flare Smart Accounts (proof-based mint). Auto-discovers operator XRPL + first agent vault on-chain; submits ONE XRPL Payment with the encoded reference; sync-polls FXRP balance up to 180s. Default 10 XRP / 1 lot. Requires `XRPL_SEED`. |
+| 30 | `xrpfi_redeem_bridge` | 💧 Reverse XRPFi corridor (n-payment v0.22.1): redeems FXRP on Flare back to XRP via FAssets, swaps XRP→RLUSD on the XRPL native AMM, then optionally bridges RLUSD via Wormhole NTT to **base-mainnet** (default), **ethereum-mainnet**, **optimism-mainnet**, **ink-mainnet**, or **unichain-mainnet**. Stops at the swap leg when target is `xrpl-mainnet` / `xrpl-testnet`. Conservative caps `RLUSD_MAX_PER_TRANSFER=50`, `RLUSD_MAX_PER_DAY=200` (env-overridable). Requires `XRPL_SEED` plus the target's `<CHAIN>_KEY` env var (e.g. `BASE_KEY`); optional `ethers >=6` peer dep for NTT signers. |
 
 ### Host coverage
 
@@ -437,7 +438,7 @@ def call(method, params=None):
     return json.loads(_proc.stdout.readline())
 
 call("initialize")
-tools = call("tools/list")["result"]["tools"]               # all 38 tools
+tools = call("tools/list")["result"]["tools"]               # all 39 tools
 print(call("tools/call",
            {"name": "negotiate",
             "arguments": {"price_micros": 10_000, "caller_reputation": 95}}))

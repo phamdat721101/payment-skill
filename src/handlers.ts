@@ -2440,3 +2440,274 @@ export const goat_swap_to_usdc = async (
     return decorateGoatError(e as Error & { code?: string; hint?: string }, args.chain);
   }
 };
+
+
+// ────────────────────────────────────────────────────────────────────────────
+// XRPFi reverse corridor (n-payment v0.22.1)
+//   FXRP (Flare) → XRP (XRPL) → RLUSD (XRPL AMM) → RLUSD on target EVM (NTT)
+//
+// Thin wrapper: validate → build SDK config → selectRlusdCorridor (plan) →
+// SDK executor (run). Per-leg receipt returned. No HTTP, no payment.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** RLUSD-EVM target chains supported by Wormhole NTT 1.1.0 (n-payment v0.22.1). */
+type RlusdEvmTarget =
+  | 'ethereum-mainnet'
+  | 'optimism-mainnet'
+  | 'base-mainnet'
+  | 'ink-mainnet'
+  | 'unichain-mainnet';
+
+type XrpfiTarget = RlusdEvmTarget | 'xrpl-mainnet' | 'xrpl-testnet';
+
+/** SDK signer slot names per Wormhole NTT chain (PascalCase, matches v0.22 README). */
+const WORMHOLE_SIGNER_NAME: Record<RlusdEvmTarget, string> = {
+  'ethereum-mainnet': 'Ethereum',
+  'optimism-mainnet': 'Optimism',
+  'base-mainnet': 'Base',
+  'ink-mainnet': 'Ink',
+  'unichain-mainnet': 'Unichain',
+};
+
+/** ENV key per chain. One env var per chain — only the target's key is required. */
+const WORMHOLE_SIGNER_ENV: Record<RlusdEvmTarget, string> = {
+  'ethereum-mainnet': 'ETHEREUM_KEY',
+  'optimism-mainnet': 'OPTIMISM_KEY',
+  'base-mainnet': 'BASE_KEY',
+  'ink-mainnet': 'INK_KEY',
+  'unichain-mainnet': 'UNICHAIN_KEY',
+};
+
+const RLUSD_DEFAULT_MAX_PER_TRANSFER = '50';
+const RLUSD_DEFAULT_MAX_PER_DAY = '200';
+const RLUSD_DECIMALS = 18;
+
+const isXrpfiEvmTarget = (c: string): c is RlusdEvmTarget =>
+  c === 'ethereum-mainnet' ||
+  c === 'optimism-mainnet' ||
+  c === 'base-mainnet' ||
+  c === 'ink-mainnet' ||
+  c === 'unichain-mainnet';
+
+/**
+ * Lazy-load `ethers` (optional peer dep). Wormhole NTT signers require an
+ * ethers.Wallet in the v0.22.1 SDK config. Users that never bridge never
+ * install ethers — this function fails fast with a clear hint when they do.
+ */
+async function loadEthers(): Promise<{
+  Wallet: new (key: string, provider: unknown) => unknown;
+  JsonRpcProvider: new (url: string) => unknown;
+}> {
+  try {
+    // @ts-ignore - optional peer dep, declared in package.json peerDependenciesMeta
+    const mod = await import('ethers');
+    // ethers v6 exports as namespace; v5 as default.
+    return ((mod as { ethers?: unknown }).ethers ?? mod) as never;
+  } catch {
+    throw Object.assign(
+      new Error(
+        'ethers >=6 is required for Wormhole NTT signers. Install with `npm i ethers`.',
+      ),
+      { code: 'ETHERS_PEER_DEP_MISSING' },
+    );
+  }
+}
+
+/** Resolve the per-chain RPC URL: env override (e.g. BASE_RPC) > CHAIN_META default. */
+function resolveEvmRpc(chain: RlusdEvmTarget, env: NodeJS.ProcessEnv): string {
+  const envName = chain.replace(/-mainnet$/, '').toUpperCase() + '_RPC';
+  return env[envName] ?? CHAIN_META[chain].rpcUrl;
+}
+
+/** Clamp the caller's per-transfer override to the env-configured ceiling. */
+function clampPerTransfer(
+  requested: string | undefined,
+  envCeiling: string,
+): string {
+  const r = requested ?? envCeiling;
+  return Number(r) > Number(envCeiling) ? envCeiling : r;
+}
+
+export const xrpfi_redeem_bridge = async (
+  args: {
+    amount_fxrp: string;
+    target_chain: XrpfiTarget;
+    recipient?: string;
+    flare_chain: 'flare-coston2' | 'flare-mainnet';
+    xrpl_chain: 'xrpl-testnet' | 'xrpl-mainnet';
+    swap_max_slippage_bps: number;
+    redemption_timeout_ms: number;
+    max_per_transfer?: string;
+    wait: boolean;
+    poll_interval_ms: number;
+    timeout_ms: number;
+    dry_run: boolean;
+    idempotency_key?: string;
+  },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    // 1. Mainnet guards on every chain in the corridor.
+    for (const c of [args.flare_chain, args.xrpl_chain, args.target_chain] as ChainKey[]) {
+      const guard = guardMainnet(c, ctx);
+      if (guard) return guard;
+    }
+
+    // 2. XRPL_SEED required for redemption (memo) and AMM swap legs.
+    if (!ctx.env.XRPL_SEED) {
+      return fail(
+        'XRPL_SEED env var is required for the XRPFi reverse corridor.',
+        'XRPL_SEED_MISSING',
+        'export XRPL_SEED=sEd…   Faucet: https://faucet.altnet.rippletest.net/accounts',
+      );
+    }
+
+    // 3. EVM target → require the matching Wormhole signer key.
+    const evmTarget: RlusdEvmTarget | null = isXrpfiEvmTarget(args.target_chain)
+      ? args.target_chain
+      : null;
+    let signerKey: string | undefined;
+    if (evmTarget) {
+      const envName = WORMHOLE_SIGNER_ENV[evmTarget];
+      signerKey = ctx.env[envName];
+      if (!signerKey) {
+        return fail(
+          `Wormhole NTT signer key required for ${evmTarget}.`,
+          'WORMHOLE_SIGNER_KEY_MISSING',
+          `export ${envName}=0x… (private key for the EVM wallet that will receive RLUSD).`,
+        );
+      }
+    }
+
+    // 4. Cap resolution: clamp caller arg to env ceiling, reject amount > cap.
+    const envMaxXfer = ctx.env.RLUSD_MAX_PER_TRANSFER ?? RLUSD_DEFAULT_MAX_PER_TRANSFER;
+    const envMaxDay = ctx.env.RLUSD_MAX_PER_DAY ?? RLUSD_DEFAULT_MAX_PER_DAY;
+    const maxPerTransfer = clampPerTransfer(args.max_per_transfer, envMaxXfer);
+    if (Number(args.amount_fxrp) > Number(maxPerTransfer)) {
+      return fail(
+        `amount_fxrp (${args.amount_fxrp}) exceeds maxPerTransfer cap (${maxPerTransfer}).`,
+        'XRPFI_CAPS_EXCEEDED',
+        'Lower amount_fxrp or raise RLUSD_MAX_PER_TRANSFER (env).',
+      );
+    }
+
+    // 5. Probe SDK for v0.22.1 corridor exports.
+    const sdk = await np();
+    const sdkAny = sdk as unknown as {
+      selectRlusdCorridor?: (plan: unknown) => Promise<unknown> | unknown;
+      createPaymentClient: (cfg: unknown) => unknown;
+      executeRlusdCorridor?: (...a: unknown[]) => Promise<unknown>;
+    };
+    if (typeof sdkAny.selectRlusdCorridor !== 'function') {
+      return fail(
+        'Installed n-payment SDK is missing selectRlusdCorridor.',
+        'RLUSD_SDK_TOO_OLD',
+        'Run `npm i n-payment@^0.22.1`.',
+      );
+    }
+
+    // 6. Build the SDK client config (no HTTP target — pure asset routing).
+    const w = await getWallet(ctx);
+    const clientCfg: Record<string, unknown> = {
+      chains: Array.from(
+        new Set([args.xrpl_chain, args.flare_chain, args.target_chain]),
+      ),
+      ows: { wallet: w.name, privateKey: w.privateKey },
+      xrpl: { seed: ctx.env.XRPL_SEED, autoSwap: true },
+      flare: {
+        network:
+          args.flare_chain === 'flare-mainnet'
+            ? 'flare-mainnet'
+            : 'coston2-testnet',
+      },
+      xrpfi: {
+        enabled: true,
+        redemptionTimeoutMs: args.redemption_timeout_ms,
+        swapMaxSlippageBps: args.swap_max_slippage_bps,
+      },
+    };
+
+    if (evmTarget) {
+      const ethers = await loadEthers();
+      const rpcUrl = resolveEvmRpc(evmTarget, ctx.env);
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const signer = new ethers.Wallet(signerKey!, provider);
+      clientCfg.wormhole = {
+        signers: { [WORMHOLE_SIGNER_NAME[evmTarget]]: signer },
+        maxPerTransfer: parseUnits(maxPerTransfer, RLUSD_DECIMALS),
+        maxPerDay: parseUnits(envMaxDay, RLUSD_DECIMALS),
+      };
+    }
+
+    const client = sdkAny.createPaymentClient(clientCfg) as Record<string, unknown>;
+
+    // 7. Default recipient: agent's own wallet on the target rail.
+    const recipient =
+      args.recipient ??
+      (evmTarget ? w.address : await xrplAddressFromSeed(ctx.env.XRPL_SEED));
+
+    // 8. Plan the corridor.
+    const plan = await sdkAny.selectRlusdCorridor!({
+      from: { chain: args.flare_chain, asset: 'FXRP', amount: args.amount_fxrp },
+      to: { chain: args.target_chain, asset: 'RLUSD', recipient },
+    });
+
+    if (args.dry_run) {
+      return ok({
+        step: 'dry-run',
+        plan,
+        target_chain: args.target_chain,
+        recipient,
+        max_per_transfer: maxPerTransfer,
+        max_per_day: envMaxDay,
+      });
+    }
+
+    // 9. Execute. v0.22.1 may expose the executor under a few related names —
+    //    probe in priority order to be robust to minor SDK API drift.
+    const exec =
+      (client.executeCorridor as Function | undefined) ??
+      (client.executeRlusdCorridor as Function | undefined) ??
+      (sdkAny.executeRlusdCorridor as Function | undefined);
+    if (typeof exec !== 'function') {
+      return fail(
+        'No corridor executor exposed in n-payment SDK.',
+        'RLUSD_SDK_TOO_OLD',
+        'Expected client.executeCorridor / executeRlusdCorridor in n-payment >=0.22.1.',
+      );
+    }
+
+    const start = Date.now();
+    const idempotencyKey =
+      args.idempotency_key ?? `xrpfi-${w.name}-${start}`;
+    const r = (await exec.call(client, {
+      plan,
+      recipient,
+      idempotencyKey,
+      timeoutMs: args.timeout_ms,
+      pollIntervalMs: args.poll_interval_ms,
+      wait: args.wait,
+    })) as Record<string, unknown>;
+
+    const fallbackRoute = evmTarget
+      ? 'xrpfi-redeem-swap-then-bridge'
+      : 'xrpfi-redeem-then-swap';
+    const route =
+      ((plan as Record<string, unknown>)?.route as string | undefined) ??
+      ((plan as Record<string, unknown>)?.name as string | undefined) ??
+      fallbackRoute;
+
+    return ok({
+      step: (r.status as string | undefined) ?? 'submitted',
+      route,
+      target_chain: args.target_chain,
+      recipient,
+      redeem_tx: r.redeemTx ?? r.redeem_tx,
+      swap_tx: r.swapTx ?? r.swap_tx,
+      ntt_vaa: r.nttVaa ?? r.ntt_vaa,
+      ntt_redeem_tx: r.nttRedeemTx ?? r.ntt_redeem_tx,
+      target_balance: r.targetBalance ?? r.target_balance,
+      idempotency_key: idempotencyKey,
+      latency_ms: Date.now() - start,
+    });
+  });

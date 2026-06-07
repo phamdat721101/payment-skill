@@ -2,8 +2,8 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { TOOLS, TOOL_BY_NAME, TOOL_NAMES, Chain, CHAIN_KEYS } from '../src/tools.js';
 
 describe('tool registry', () => {
-  it('exposes exactly 38 tools', () => {
-    expect(TOOLS).toHaveLength(38);
+  it('exposes exactly 39 tools', () => {
+    expect(TOOLS).toHaveLength(39);
   });
 
   it('Morph features are unified under a single morph_pay tool', () => {

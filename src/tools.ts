@@ -36,6 +36,11 @@ export const CHAIN_KEYS = [
   'creditcoin-testnet',
   'flare-coston2',
   'flare-mainnet',
+  // RLUSD multichain rails (n-payment v0.22.1) — Wormhole NTT 1.1.0 targets.
+  'ethereum-mainnet',
+  'optimism-mainnet',
+  'ink-mainnet',
+  'unichain-mainnet',
 ] as const;
 
 export type ChainKey = (typeof CHAIN_KEYS)[number];
@@ -636,6 +641,73 @@ export const TOOLS: ReadonlyArray<Tool> = [
       chain: z.enum(['flare-coston2', 'flare-mainnet']).default('flare-coston2'),
     }),
     handler: h.xrpl_to_fxrp_bridge as never,
+  }),
+
+  // ─── XRPFi reverse corridor — FXRP → XRP → RLUSD-XRPL → RLUSD-EVM ────────
+  def({
+    name: 'xrpfi_redeem_bridge',
+    description:
+      'Reverse XRPFi corridor (n-payment v0.22.1): redeems FXRP on Flare back to XRP via FAssets, swaps XRP→RLUSD on the XRPL native AMM, then (optionally) bridges RLUSD to a Wormhole-NTT-supported EVM chain ' +
+      '(ethereum / optimism / base / ink / unichain). One prompt, one pipeline. ' +
+      'Stops at the swap leg when target_chain is xrpl-mainnet/xrpl-testnet. ' +
+      'Conservative caps: RLUSD_MAX_PER_TRANSFER=50, RLUSD_MAX_PER_DAY=200 (env-overridable). ' +
+      'Requires XRPL_SEED for the redemption + swap legs. EVM targets additionally require the matching ' +
+      '<CHAIN>_KEY env var (ETHEREUM_KEY / OPTIMISM_KEY / BASE_KEY / INK_KEY / UNICHAIN_KEY) and the optional `ethers` peer dep.',
+    schema: z
+      .object({
+        amount_fxrp: z
+          .string()
+          .regex(/^\d+(\.\d{1,6})?$/, 'decimal FXRP, e.g. "10" or "1.5"'),
+        target_chain: z
+          .enum([
+            'xrpl-mainnet',
+            'xrpl-testnet',
+            'ethereum-mainnet',
+            'optimism-mainnet',
+            'base-mainnet',
+            'ink-mainnet',
+            'unichain-mainnet',
+          ])
+          .default('base-mainnet'),
+        recipient: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Target-chain recipient. Defaults: agent EVM wallet for EVM targets, agent XRPL address for XRPL targets.',
+          ),
+        flare_chain: z
+          .enum(['flare-coston2', 'flare-mainnet'])
+          .default('flare-mainnet'),
+        xrpl_chain: z
+          .enum(['xrpl-testnet', 'xrpl-mainnet'])
+          .default('xrpl-mainnet'),
+        swap_max_slippage_bps: z.number().int().min(1).max(1000).default(100),
+        redemption_timeout_ms: z
+          .number()
+          .int()
+          .min(60_000)
+          .max(1_800_000)
+          .default(600_000),
+        max_per_transfer: z
+          .string()
+          .regex(/^\d+(\.\d{1,6})?$/, 'decimal RLUSD')
+          .optional()
+          .describe(
+            'Per-call override; clamped to env RLUSD_MAX_PER_TRANSFER (default 50).',
+          ),
+        wait: z.boolean().default(true),
+        poll_interval_ms: z.number().int().min(1000).max(30_000).default(10_000),
+        timeout_ms: z
+          .number()
+          .int()
+          .min(10_000)
+          .max(1_800_000)
+          .default(600_000),
+        dry_run: z.boolean().default(false),
+        idempotency_key: z.string().min(1).max(64).optional(),
+      }),
+    handler: h.xrpfi_redeem_bridge as never,
   }),
 ];
 
