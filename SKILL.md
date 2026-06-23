@@ -1,7 +1,7 @@
 ---
 name: n-payment
 preamble-tier: 1
-version: 1.0.0
+version: 2.0.0
 description: |
   One-line web3 payment skill for AI agents. Pay any HTTP 402 endpoint
   (x402 / MPP / GOAT), monetize your own API (paywall + paidTool), discover
@@ -120,9 +120,48 @@ If `WALLET: none` from the preamble, run:
 n-payment-skill setup
 ```
 
-This creates `~/.n-payment/wallets/default.json` (chmod 0600), writes
-`~/.n-payment/config.json`, and calls the testnet faucet so the wallet is
-ready to spend ~10 USDC immediately on Base Sepolia.
+This creates `~/.n-payment/wallets/default.json` **encrypted at rest**
+(Web3 Secret Storage v3 — scrypt + AES-128-CTR + Keccak MAC), writes the
+default `~/.n-payment/policy.json` (policy-gated mode, per-tx + per-day
+caps, optional allow/deny lists), generates `~/.n-payment/mcp.token`
+(bearer token for the MCP HTTP transport), and calls the testnet faucet
+so the wallet is ready to spend ~10 USDC immediately on Base Sepolia.
+
+## Security model (v2)
+
+Every signing call (`pay`, `xrpl_pay`, `morph_pay`, `create_session`,
+`create_escrow`, `delegate_budget`, `off_ramp`, `btc_lend`,
+`register_identity`, `give_feedback`, `batch_settle`, `stream_pay`,
+`ap2_mandate`, `direct_transfer`, `permit2_approve`, `stellar_escrow`,
+`aave_yield`, all `xrpl_*` write actions, …) is gated **once** at the MCP
+dispatcher chokepoint. Read-only tools (`check_balance`, `discover`,
+`negotiate`, `generate_qr`, `get_reputation`, `policy_check`,
+`xrpl_balance`, `agent_card`) bypass the gate.
+
+| Layer | Behaviour |
+|---|---|
+| Unlock cache (in-memory only) | `n-payment-skill unlock` decrypts the keystore; auto-evicts after `policy.unlockTtlSeconds` (default 30 min). Locked calls return `code: 'LOCKED'`. |
+| Policy modes | `strict` (deny all), `policy` (allow/deny + caps — default), `bypass` (testnet only, refused on `*-mainnet`). |
+| Caps | `global.maxPerTxMicros`, `global.maxPerDayMicros`, `chains[<chain>].*`, `requireConfirmAboveMicros`. Per-day cap is enforced against the audit log. |
+| Allow/deny lists | `policy.allowlist.payTo`, `policy.denylist.payTo`, `allowlist.urls`, `denylist.urls` — empty allowlist = allow-by-default. |
+| Rate limit | Token bucket — `policy.rateLimit.perMinute` signing calls/minute (default 30). |
+| Audit log | JSONL at `~/.n-payment/audit.log` (mode 0600, rotated at 5 MiB). Keys matching `/privateKey\|passphrase\|seed\|bearer\|api_key\|secret\|password\|token/i` are redacted. |
+| MCP HTTP | `POST /mcp` requires `Authorization: Bearer <token from ~/.n-payment/mcp.token>` — fails closed (503) when no token is on disk; 401 on missing/wrong bearer. |
+| Supply chain | npm artifact published with `--provenance` via GitHub Actions, signed by Sigstore. |
+
+CLI surface:
+
+```bash
+n-payment-skill unlock                       # decrypt + cache (prompts)
+n-payment-skill lock                         # forget cached keys
+n-payment-skill policy show                  # current policy
+n-payment-skill policy set global.maxPerTxMicros 200000
+n-payment-skill policy reset                 # restore defaults
+n-payment-skill audit tail -n 50             # last 50 signed/denied calls
+n-payment-skill wallet migrate               # v1 plaintext → v3 keystore
+n-payment-skill wallet purge-legacy          # delete the .legacy backup
+n-payment-skill mcp token                    # print the bearer token
+```
 
 ## Skill routing (proactive)
 

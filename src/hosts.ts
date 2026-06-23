@@ -10,13 +10,27 @@ import { mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { renderSkill } from './skill.js';
+import { ensureMcpToken } from './config.js';
 
 // ─── Shared MCP server entry ─────────────────────────────────────────────────
-const MCP_SERVER_ENTRY = {
-  command: 'n-payment-skill',
-  args: ['mcp', '--stdio'],
-  env: {},
-} as const;
+//
+// Stdio is the default transport for every host. We still inject the
+// bearer token via the env block so that a user who later switches a host
+// config to the `--http` transport already has the credential plumbed.
+// Stdio hosts simply ignore it.
+
+async function mcpServerEntry(home: string): Promise<{
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}> {
+  const token = await ensureMcpToken(home);
+  return {
+    command: 'n-payment-skill',
+    args: ['mcp', '--stdio'],
+    env: { NPAYMENT_MCP_TOKEN: token },
+  };
+}
 
 const SKILL_TAG = '<!-- n-payment-skill: managed block -->';
 
@@ -40,10 +54,13 @@ async function writeJson(p: string, data: unknown): Promise<void> {
 }
 
 /** Merge our MCP server entry into a host's mcp.json-style config. */
-async function upsertMcpServer(p: string): Promise<string> {
+async function upsertMcpServer(p: string, home: string): Promise<string> {
   type Cfg = { mcpServers?: Record<string, unknown>; [k: string]: unknown };
   const cfg = await readJson<Cfg>(p, {});
-  cfg.mcpServers = { ...(cfg.mcpServers ?? {}), 'n-payment': MCP_SERVER_ENTRY };
+  cfg.mcpServers = {
+    ...(cfg.mcpServers ?? {}),
+    'n-payment': await mcpServerEntry(home),
+  };
   await writeJson(p, cfg);
   return p;
 }
@@ -132,7 +149,7 @@ export const HOSTS: ReadonlyArray<HostDefinition> = [
     detect: ({ home }) => existsSync(join(home, '.cursor')),
     apply: async ({ home, cwd }) => {
       const out: string[] = [];
-      out.push(await upsertMcpServer(join(home, '.cursor', 'mcp.json')));
+      out.push(await upsertMcpServer(join(home, '.cursor', 'mcp.json'), home));
       if (existsSync(join(cwd, '.cursor')) || existsSync(join(cwd, '.git'))) {
         out.push(
           await upsertMarkdownBlock(
@@ -153,6 +170,7 @@ export const HOSTS: ReadonlyArray<HostDefinition> = [
       const out = [
         await upsertMcpServer(
           join(home, '.codeium', 'windsurf', 'mcp_config.json'),
+          home,
         ),
       ];
       if (existsSync(join(cwd, '.git'))) {
@@ -167,7 +185,9 @@ export const HOSTS: ReadonlyArray<HostDefinition> = [
     scope: 'user',
     detect: ({ home }) => existsSync(join(home, '.continue')),
     apply: async ({ home, cwd }) => {
-      const out = [await upsertMcpServer(join(home, '.continue', 'config.json'))];
+      const out = [
+        await upsertMcpServer(join(home, '.continue', 'config.json'), home),
+      ];
       if (existsSync(join(cwd, '.git'))) {
         out.push(await upsertMarkdownBlock(join(cwd, '.continuerules'), RULES_BODY));
       }
@@ -184,9 +204,9 @@ export const HOSTS: ReadonlyArray<HostDefinition> = [
       await ensureDir(dir);
       const manifest = {
         name: 'n-payment',
-        version: '1.0.0',
+        version: '2.0.0',
         description: 'n-payment-skill: pay HTTP 402, x402, MPP, GOAT.',
-        mcpServers: { 'n-payment': MCP_SERVER_ENTRY },
+        mcpServers: { 'n-payment': await mcpServerEntry(home) },
       };
       await writeJson(join(dir, 'gemini-extension.json'), manifest);
       await writeFile(join(dir, 'GEMINI.md'), renderSkill());

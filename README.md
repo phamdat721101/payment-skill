@@ -93,28 +93,40 @@ The skill supplies your stablecoin into a leading on-chain money market and retu
 
 ---
 
-## 🔐 OWS Wallet — Local, Secure, Multi-Chain
+## 🔐 Security Model — Encrypted, Policy-Gated, Auditable
 
-The skill ships with an **OWS (Offline Wallet Sign)** wallet built in. Think of it as a hardware-wallet-style key vault that lives on disk and signs *only when you ask*.
+v2 retires the "unverified credentials, low trustworthiness, high
+permissions" warning at install time. The skill ships with a **hardware-
+wallet-style key vault** on disk and a **single-chokepoint guard** around
+every signing call. You get a working testnet wallet in one command, and a
+production-grade trust posture the moment you opt into mainnet.
 
 | ✅ Property | What it means for you |
 |---|---|
-| 📁 **One local keyfile** | Generated on first run at `~/.n-payment/wallets/default.json` — file mode `0600`, directory mode `0700`. |
-| 🚫 **Never echoed** | The CLI prints addresses, never private keys. Same rule applies to your AI agent. |
-| 🌐 **One key, many chains** | The same wallet signs payments, paywalls, yield, swaps, and bridges across every supported network. |
-| 🛡️ **Mainnet guard** | Every send refuses to touch mainnet until you explicitly opt in with one config command. |
-| 🧪 **Untrusted-input safe** | HTTP responses returned to your agent are wrapped as untrusted content — payloads can't smuggle instructions. |
+| 🔒 **Encrypted at rest** | Keys live in a Web3 Secret Storage v3 file (`scrypt` + AES-128-CTR + Keccak MAC). Interop with viem / ethers / geth / hardware-wallet imports. No plaintext after `setup`. |
+| 🔓 **In-memory unlock** | `n-payment-skill unlock` decrypts once per session. Cache auto-evicts after `policy.unlockTtlSeconds` (30 min default). No private key ever touches disk after the upgrade. |
+| 🛂 **Policy-gated dispatcher** | Every signing call passes through one guard: `unlock` → `denylist` → `allowlist` → `per-tx cap` → `per-day cap` (from audit log) → `rate limit`. Read-only tools bypass. |
+| 📜 **Audit log** | Append-only JSONL at `~/.n-payment/audit.log` (mode 0600, rotated at 5 MiB). Secret-shaped keys (`privateKey`, `passphrase`, `seed`, `bearer`, `api_key`, …) are redacted before write. |
+| 🛡️ **Bearer-token MCP HTTP** | `POST /mcp` requires `Authorization: Bearer <~/.n-payment/mcp.token>`. Fails closed (503) when no token is configured; 401 on missing/wrong. |
+| 🚫 **Mainnet guard** | Policy mode `bypass` is refused on `*-mainnet` chains. Default chain caps (e.g. `base-mainnet`) are 100k micros (~$0.10) per tx until you raise them. |
+| 🩹 **Migrates v1 in place** | Re-run `n-payment-skill setup` and any v1 plaintext keystore is encrypted in place; the original is preserved as `default.json.legacy` until you run `wallet purge-legacy`. |
+| 📦 **Supply chain proof** | npm artifact is published with `--provenance` via GitHub Actions; verifiable through Sigstore + the public transparency log. |
 
 ```bash
-n-payment-skill wallet show        # print the address
-n-payment-skill wallet new staging # spin up an isolated wallet
-n-payment-skill doctor             # verify RPC + balance + faucet
+n-payment-skill unlock                       # decrypt + cache (prompts)
+n-payment-skill policy show                  # current policy
+n-payment-skill policy set global.maxPerTxMicros 200000
+n-payment-skill audit tail -n 20             # last 20 signed/denied calls
+n-payment-skill mcp token                    # print the bearer token
+n-payment-skill wallet migrate               # v1 plaintext → v3 keystore
+n-payment-skill wallet purge-legacy          # delete the .legacy backup
 ```
 
-When you're ready for production:
+Opting into mainnet:
 
 ```bash
-n-payment-skill config set testnetMode false
+n-payment-skill config set testnetMode false    # also flips policy.mode
+n-payment-skill policy set chains.base-mainnet.maxPerTxMicros 1000000
 ```
 
 ---

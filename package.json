@@ -1,7 +1,7 @@
 {
   "name": "n-payment-skill",
-  "version": "1.1.0",
-  "description": "One-line install web3 payment skill for AI agents (Claude Code, Kiro, Gemini CLI, Cursor, Windsurf, Continue, GitHub Copilot, MCP). Wraps the n-payment SDK with a Gstack-style skill, MCP stdio + HTTP server, OpenAI/LangChain/LlamaIndex exports, zero-config dev wallet on testnet.",
+  "version": "2.0.0",
+  "description": "One-line install web3 payment skill for AI agents (Claude Code, Kiro, Gemini CLI, Cursor, Windsurf, Continue, GitHub Copilot, MCP). v2: encrypted-at-rest wallet (Web3 Secret Storage v3), policy-gated dispatcher, audit log, bearer-token MCP HTTP, npm provenance. Wraps the n-payment SDK with a Gstack-style skill, MCP stdio + HTTP server, OpenAI/LangChain/LlamaIndex exports, zero-config dev wallet on testnet.",
   "type": "module",
   "bin": {
     "n-payment-skill": "./dist/cli.js"
@@ -33,7 +33,8 @@
     "lint": "tsc --noEmit",
     "dev": "tsup --watch",
     "prepare": "tsup",
-    "prepublishOnly": "pnpm build && pnpm test"
+    "prepublishOnly": "pnpm build && pnpm test",
+    "publish:provenance": "npm publish --provenance --access public"
   },
   "keywords": [
     "ai-agent",

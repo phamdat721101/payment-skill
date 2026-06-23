@@ -79,8 +79,9 @@ describe('MCP dispatcher', () => {
 });
 
 describe('MCP HTTP transport', () => {
-  it('serves /health and /mcp on a free port', async () => {
-    const handle = await runHttp(0, async () => ctx());
+  it('serves /health and /mcp on a free port (with bearer)', async () => {
+    const TOKEN = 'test-bearer-token-1234567890abcdef';
+    const handle = await runHttp(0, async () => ctx(), async () => TOKEN);
     try {
       const health = await fetch(`http://127.0.0.1:${handle.port}/health`);
       const data = (await health.json()) as { status: string };
@@ -88,13 +89,57 @@ describe('MCP HTTP transport', () => {
 
       const list = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${TOKEN}`,
+        },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
       });
       const body = (await list.json()) as {
         result: { tools: Array<unknown> };
       };
       expect(body.result.tools).toHaveLength(40);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects /mcp with 401 when bearer is missing or wrong', async () => {
+    const handle = await runHttp(0, async () => ctx(), async () => 'right-token');
+    try {
+      const noHeader = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      expect(noHeader.status).toBe(401);
+
+      const wrong = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer wrong-token',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      expect(wrong.status).toBe(401);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('refuses /mcp with 503 when no token is configured (fail-closed)', async () => {
+    const handle = await runHttp(0, async () => ctx(), async () => null);
+    try {
+      const r = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer anything',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      expect(r.status).toBe(503);
     } finally {
       await handle.close();
     }

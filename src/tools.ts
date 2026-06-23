@@ -792,3 +792,58 @@ export const TOOL_BY_NAME: Readonly<Record<string, Tool>> = Object.freeze(
 );
 
 export const TOOL_NAMES: ReadonlyArray<string> = TOOLS.map((t) => t.name);
+
+// ─── Security classification (v2 dispatcher consumes this) ───────────────────
+//
+// Single source of truth for "which calls need the unlock + policy gate".
+// Maintained as a separate table (not inline flags on the registry) so a
+// security auditor can read the whole list in one block, and so that adding
+// a new signing tool requires touching exactly two lines.
+//
+// `READ_ACTIONS[name]` lists action values that downgrade an action-based
+// signing tool to read-only (e.g. `delegate_budget action=status`).
+
+export const SIGNING_TOOLS: ReadonlySet<string> = new Set([
+  'pay',
+  'create_session',
+  'create_escrow',
+  'delegate_budget',
+  'off_ramp',
+  'btc_lend',
+  'register_identity',
+  'give_feedback',
+  'batch_settle',
+  'stream_pay',
+  'ap2_mandate',
+  'morph_pay',
+  'xrpl_pay',
+  'xrpl_vault',
+  'xrpl_oracle',
+  'xrpl_trust_line',
+  'circle_nanopay',
+  'stellar_escrow',
+  'permit2_approve',
+  'direct_transfer',
+  'aave_yield',
+]);
+
+export const READ_ACTIONS: Readonly<Record<string, ReadonlyArray<string>>> = {
+  delegate_budget: ['status'],
+  btc_lend: ['status'],
+  batch_settle: ['status'],
+  stream_pay: ['status'],
+  ap2_mandate: ['verify'],
+  aave_yield: ['position'],
+  // `reference-attach` returns calldata only (no broadcast); `reference-query`
+  // is a Morph Rails REST GET. Both safe without unlock.
+  morph_pay: ['reference-attach', 'reference-query'],
+};
+
+/** True when calling this tool with these args is a signing operation. */
+export function isSigningCall(toolName: string, args: unknown): boolean {
+  if (!SIGNING_TOOLS.has(toolName)) return false;
+  const reads = READ_ACTIONS[toolName];
+  if (!reads) return true;
+  const action = (args as { action?: unknown } | null | undefined)?.action;
+  return typeof action !== 'string' || !reads.includes(action);
+}
