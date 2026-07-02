@@ -259,15 +259,32 @@ async function spentLast24h(home?: string): Promise<number> {
 // ─── Audit log (JSONL, append-only, redacted, rotated at 5 MiB) ──────────────
 const REDACT_KEYS = /(privateKey|passphrase|seed|bearer|api[_-]?key|secret|password|token)/i;
 
+/** Redact values that look like secrets regardless of key name. */
+function isSecretValue(v: unknown): boolean {
+  if (typeof v !== 'string' || v.length < 10) return false;
+  // Private key (0x + 64 hex)
+  if (/^0x[0-9a-f]{64}$/i.test(v)) return true;
+  // XRPL seed (s + 28+ base58)
+  if (/^s[A-Za-z0-9]{28,}$/.test(v)) return true;
+  // Bearer token
+  if (/^Bearer\s+.{10,}$/i.test(v)) return true;
+  // Mnemonic (12+ words)
+  if (v.split(' ').length >= 12 && /^[a-z ]+$/.test(v)) return true;
+  return false;
+}
+
 export function redactArgs(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactArgs);
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = REDACT_KEYS.test(k) ? '<redacted>' : redactArgs(v);
+      if (REDACT_KEYS.test(k)) { out[k] = '<redacted>'; }
+      else if (isSecretValue(v)) { out[k] = '<redacted-value>'; }
+      else { out[k] = redactArgs(v); }
     }
     return out;
   }
+  if (isSecretValue(value)) return '<redacted-value>';
   return value;
 }
 
@@ -530,7 +547,8 @@ export async function runHttp(
       res.end('Not found');
     },
   );
-  await new Promise<void>((resolve) => server.listen(port, resolve));
+  const host = process.env.MCP_HTTP_HOST || '127.0.0.1';
+  await new Promise<void>((resolve) => server.listen(port, host, resolve));
   const actualPort = (server.address() as { port: number }).port;
   return {
     port: actualPort,

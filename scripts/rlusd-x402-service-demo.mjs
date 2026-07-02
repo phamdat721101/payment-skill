@@ -31,7 +31,8 @@ import express from 'express';
 import { Wallet, Client } from 'xrpl';
 import { createPaymentClient, createPaywall } from 'n-payment';
 
-const SEED = process.env.XRPL_BUYER_SEED ?? 'sEdTcYPTN1p8nCUF7WF24WGrYS1gMAc';
+const SEED = process.env.XRPL_BUYER_SEED;
+if (!SEED) { console.error("Error: Set XRPL_BUYER_SEED env var"); process.exit(1); }
 const PORT = Number(process.env.PORT ?? 8765);
 const PRICE_RLUSD = '0.01';
 const ROUTE = 'GET /weather/forecast';

@@ -12,7 +12,8 @@
 
 import { Client, Wallet } from 'xrpl';
 
-const SEED = process.argv[2] ?? 'sEdTcYPTN1p8nCUF7WF24WGrYS1gMAc';
+const SEED = process.env.XRPL_BUYER_SEED;
+if (!SEED) { console.error("Error: Set XRPL_BUYER_SEED env var"); process.exit(1); }
 const NETWORK = 'wss://s.altnet.rippletest.net:51233';
 const RLUSD_TESTNET_ISSUER = 'rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV';
 // xrpl.js v4 rejects non-3-char ASCII currency codes — must use 40-hex form.

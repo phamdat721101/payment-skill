@@ -94,9 +94,13 @@ describe('skill config', () => {
     expect(c.defaultChain).toBe('goat-testnet');
   });
 
-  it('switching to a -mainnet chain forces testnetMode=false', async () => {
-    const c = await saveConfig({ defaultChain: 'base-mainnet' }, HOME);
-    expect(c.testnetMode).toBe(false);
+  it('switching to a -mainnet chain requires explicit testnetMode=false', async () => {
+    // Without explicit testnetMode: false, mainnet chain keeps testnetMode true (safe default)
+    const c1 = await saveConfig({ defaultChain: 'base-mainnet' }, HOME);
+    expect(c1.testnetMode).toBe(true);
+    // With explicit opt-in, testnetMode is disabled
+    const c2 = await saveConfig({ defaultChain: 'base-mainnet', testnetMode: false }, HOME);
+    expect(c2.testnetMode).toBe(false);
   });
 
   it('rejects unknown chain values and falls back to default', async () => {
