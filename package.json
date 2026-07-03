@@ -66,6 +66,9 @@
   "engines": {
     "node": ">=18"
   },
+  "overrides": {
+    "ws": "^8.21.0"
+  },
   "dependencies": {
     "commander": "^12.1.0",
     "n-payment": "^0.29.1",
@@ -112,7 +115,7 @@
     "express": "^5.2.1",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
+    "vitest": "^3.2.6"
   },
   "publishConfig": {
     "access": "public"

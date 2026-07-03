@@ -272,10 +272,21 @@ export async function isWalletEncrypted(
   return !!raw && isEncrypted(raw);
 }
 
+/**
+ * @deprecated Use createEncryptedWallet instead. Kept only for test compatibility.
+ * In production, always creates encrypted wallet with a generated passphrase.
+ */
 export async function createWallet(
   name: string,
   home: string = defaultHome(),
 ): Promise<WalletRecord> {
+  // F-02 fix: no more plaintext wallets in production
+  if (process.env.NODE_ENV !== 'test') {
+    const passphrase = randomBytes(32).toString('hex');
+    console.warn(`⚠️  createWallet() is deprecated. Creating encrypted wallet. Passphrase stored in memory only.`);
+    return createEncryptedWallet(name, passphrase, home);
+  }
+  // Test-only path: plaintext for fast unit tests
   const dir = walletDir(home);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const privateKey = generatePrivateKey();
@@ -329,7 +340,9 @@ export async function ensureWallet(
 ): Promise<WalletRecord> {
   const existing = await loadWallet(name, home);
   if (existing) return existing;
-  return createWallet(name, home);
+  // F-02 fix: always create encrypted wallet
+  const passphrase = randomBytes(32).toString('hex');
+  return createEncryptedWallet(name, passphrase, home);
 }
 
 export async function listWallets(

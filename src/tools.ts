@@ -825,6 +825,14 @@ export const SIGNING_TOOLS: ReadonlySet<string> = new Set([
   'permit2_approve',
   'direct_transfer',
   'aave_yield',
+  // F-01 fix: previously bypassed signing guard
+  'spacerouter_pay',
+  'spacerouter_escrow',
+  'spacerouter_sync_receipts',
+  'goat_swap_to_usdc',
+  'xrpl_to_fxrp_bridge',
+  'xrpfi_redeem_bridge',
+  'iusd_bridge',
 ]);
 
 export const READ_ACTIONS: Readonly<Record<string, ReadonlyArray<string>>> = {
@@ -837,6 +845,14 @@ export const READ_ACTIONS: Readonly<Record<string, ReadonlyArray<string>>> = {
   // `reference-attach` returns calldata only (no broadcast); `reference-query`
   // is a Morph Rails REST GET. Both safe without unlock.
   morph_pay: ['reference-attach', 'reference-query'],
+  // F-01 fix: read-only actions for newly guarded tools
+  spacerouter_pay: ['quote', 'status'],
+  spacerouter_escrow: ['status'],
+  spacerouter_sync_receipts: ['status'],
+  goat_swap_to_usdc: ['quote'],
+  xrpl_to_fxrp_bridge: ['status'],
+  xrpfi_redeem_bridge: ['status'],
+  iusd_bridge: ['status'],
 };
 
 /** True when calling this tool with these args is a signing operation. */

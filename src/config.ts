@@ -119,7 +119,13 @@ function normalize(c: SkillConfig): SkillConfig {
     ? c.defaultChain
     : DEFAULT_CONFIG.defaultChain;
   const onMainnet = /-mainnet$/.test(chain);
-  const testnetMode = onMainnet ? false : c.testnetMode;
+  if (onMainnet && c.testnetMode !== false) {
+    console.warn(
+      `⚠️  Chain "${chain}" is a mainnet chain but testnetMode is not explicitly disabled.\n` +
+      `   Set testnetMode: false in config to confirm mainnet usage.`
+    );
+  }
+  const testnetMode = onMainnet ? (c.testnetMode === false ? false : true) : c.testnetMode;
   const telemetry = (['off', 'community', 'anonymous'] as const).includes(c.telemetry)
     ? c.telemetry
     : DEFAULT_CONFIG.telemetry;

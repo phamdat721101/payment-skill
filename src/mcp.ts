@@ -7,6 +7,7 @@
 // new tool is automatically protected.
 
 import { appendFile, chmod, mkdir, readFile, rename, stat } from 'node:fs/promises';
+import { createHmac, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createInterface } from 'node:readline';
 import { dirname } from 'node:path';
@@ -259,15 +260,32 @@ async function spentLast24h(home?: string): Promise<number> {
 // ─── Audit log (JSONL, append-only, redacted, rotated at 5 MiB) ──────────────
 const REDACT_KEYS = /(privateKey|passphrase|seed|bearer|api[_-]?key|secret|password|token)/i;
 
+/** Redact values that look like secrets regardless of key name. */
+function isSecretValue(v: unknown): boolean {
+  if (typeof v !== 'string' || v.length < 10) return false;
+  // Private key (0x + 64 hex)
+  if (/^0x[0-9a-f]{64}$/i.test(v)) return true;
+  // XRPL seed (s + 28+ base58)
+  if (/^s[A-Za-z0-9]{28,}$/.test(v)) return true;
+  // Bearer token
+  if (/^Bearer\s+.{10,}$/i.test(v)) return true;
+  // Mnemonic (12+ words)
+  if (v.split(' ').length >= 12 && /^[a-z ]+$/.test(v)) return true;
+  return false;
+}
+
 export function redactArgs(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactArgs);
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = REDACT_KEYS.test(k) ? '<redacted>' : redactArgs(v);
+      if (REDACT_KEYS.test(k)) { out[k] = '<redacted>'; }
+      else if (isSecretValue(v)) { out[k] = '<redacted-value>'; }
+      else { out[k] = redactArgs(v); }
     }
     return out;
   }
+  if (isSecretValue(value)) return '<redacted-value>';
   return value;
 }
 
@@ -311,6 +329,41 @@ export async function appendAudit(
 }
 
 // ─── Signing guard (single chokepoint) ───────────────────────────────────────
+// ─── Confirmation token (F-03) ───────────────────────────────────────────────
+let _sessionSecret: Buffer | null = null;
+function getSessionSecret(): Buffer {
+  if (!_sessionSecret) _sessionSecret = randomBytes(32);
+  return _sessionSecret;
+}
+
+/**
+ * Validate a time-based HMAC confirmation token.
+ * Token = HMAC-SHA256(sessionSecret, "tool:amountMicros:minuteBucket").slice(0, 16)
+ * Valid for current minute and previous minute (2-minute window).
+ */
+function validateConfirmToken(token: string, tool: string, amountMicros: number): boolean {
+  const secret = getSessionSecret();
+  const now = Math.floor(Date.now() / 60_000);
+  for (const offset of [0, -1]) {
+    const expected = createHmac('sha256', secret)
+      .update(`${tool}:${amountMicros}:${now + offset}`)
+      .digest('hex')
+      .slice(0, 16);
+    if (token === expected) return true;
+  }
+  return false;
+}
+
+/** Generate a confirmation token (exposed for CLI `confirm` command). */
+export function generateConfirmToken(tool: string, amountMicros: number): string {
+  const secret = getSessionSecret();
+  const now = Math.floor(Date.now() / 60_000);
+  return createHmac('sha256', secret)
+    .update(`${tool}:${amountMicros}:${now}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
 async function guardSigningCall(
   toolName: string,
   args: unknown,
@@ -353,6 +406,22 @@ async function guardSigningCall(
         `Daily cap would be exceeded (${spent + insp.amountMicros} > ${caps.maxPerDay}).`,
         'POLICY_CAP_EXCEEDED',
         'Raise policy.global.maxPerDayMicros or wait for the rolling window to clear.',
+      );
+    }
+  }
+
+  // 5. F-03 fix: Confirmation threshold — require _confirmToken for high-value calls.
+  if (
+    typeof caps.confirmAbove === 'number' &&
+    typeof insp.amountMicros === 'number' &&
+    insp.amountMicros > caps.confirmAbove
+  ) {
+    const token = (args as Record<string, unknown> | null)?._confirmToken;
+    if (typeof token !== 'string' || !validateConfirmToken(token, toolName, insp.amountMicros)) {
+      return fail(
+        `Amount ${insp.amountMicros} exceeds confirmation threshold (${caps.confirmAbove}). Provide _confirmToken to proceed.`,
+        'POLICY_CONFIRM_REQUIRED',
+        'Generate a confirmation token via `n-payment-skill confirm <tool> <amount>` and pass it as _confirmToken.',
       );
     }
   }
@@ -530,7 +599,8 @@ export async function runHttp(
       res.end('Not found');
     },
   );
-  await new Promise<void>((resolve) => server.listen(port, resolve));
+  const host = process.env.MCP_HTTP_HOST || '127.0.0.1';
+  await new Promise<void>((resolve) => server.listen(port, host, resolve));
   const actualPort = (server.address() as { port: number }).port;
   return {
     port: actualPort,
