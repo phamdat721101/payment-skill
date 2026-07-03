@@ -7,6 +7,7 @@
 // new tool is automatically protected.
 
 import { appendFile, chmod, mkdir, readFile, rename, stat } from 'node:fs/promises';
+import { createHmac, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createInterface } from 'node:readline';
 import { dirname } from 'node:path';
@@ -328,6 +329,41 @@ export async function appendAudit(
 }
 
 // ─── Signing guard (single chokepoint) ───────────────────────────────────────
+// ─── Confirmation token (F-03) ───────────────────────────────────────────────
+let _sessionSecret: Buffer | null = null;
+function getSessionSecret(): Buffer {
+  if (!_sessionSecret) _sessionSecret = randomBytes(32);
+  return _sessionSecret;
+}
+
+/**
+ * Validate a time-based HMAC confirmation token.
+ * Token = HMAC-SHA256(sessionSecret, "tool:amountMicros:minuteBucket").slice(0, 16)
+ * Valid for current minute and previous minute (2-minute window).
+ */
+function validateConfirmToken(token: string, tool: string, amountMicros: number): boolean {
+  const secret = getSessionSecret();
+  const now = Math.floor(Date.now() / 60_000);
+  for (const offset of [0, -1]) {
+    const expected = createHmac('sha256', secret)
+      .update(`${tool}:${amountMicros}:${now + offset}`)
+      .digest('hex')
+      .slice(0, 16);
+    if (token === expected) return true;
+  }
+  return false;
+}
+
+/** Generate a confirmation token (exposed for CLI `confirm` command). */
+export function generateConfirmToken(tool: string, amountMicros: number): string {
+  const secret = getSessionSecret();
+  const now = Math.floor(Date.now() / 60_000);
+  return createHmac('sha256', secret)
+    .update(`${tool}:${amountMicros}:${now}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
 async function guardSigningCall(
   toolName: string,
   args: unknown,
@@ -370,6 +406,22 @@ async function guardSigningCall(
         `Daily cap would be exceeded (${spent + insp.amountMicros} > ${caps.maxPerDay}).`,
         'POLICY_CAP_EXCEEDED',
         'Raise policy.global.maxPerDayMicros or wait for the rolling window to clear.',
+      );
+    }
+  }
+
+  // 5. F-03 fix: Confirmation threshold — require _confirmToken for high-value calls.
+  if (
+    typeof caps.confirmAbove === 'number' &&
+    typeof insp.amountMicros === 'number' &&
+    insp.amountMicros > caps.confirmAbove
+  ) {
+    const token = (args as Record<string, unknown> | null)?._confirmToken;
+    if (typeof token !== 'string' || !validateConfirmToken(token, toolName, insp.amountMicros)) {
+      return fail(
+        `Amount ${insp.amountMicros} exceeds confirmation threshold (${caps.confirmAbove}). Provide _confirmToken to proceed.`,
+        'POLICY_CONFIRM_REQUIRED',
+        'Generate a confirmation token via `n-payment-skill confirm <tool> <amount>` and pass it as _confirmToken.',
       );
     }
   }

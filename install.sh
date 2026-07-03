@@ -14,7 +14,7 @@
 #   --uninstall       Remove the global install
 #   -q, --quiet       Suppress non-error output
 #
-# Idempotent: re-runs upgrade in place. Falls back to sudo automatically when
+# Idempotent: re-runs upgrade in place. Never uses sudo — guides user to fix
 # the global npm prefix is not user-writable.
 
 set -eu
@@ -97,27 +97,18 @@ esac
 
 say "${bold}Installing $PKG from $SOURCE: $INSTALL_TARGET${reset}"
 
-# Try without sudo first; fall back to GitHub on registry-404, then sudo if
-# the global prefix is read-only.
+# Try without sudo first; fall back to GitHub on registry-404.
+# F-04 fix: NEVER use sudo — guide user to fix their npm prefix instead.
 if ! npm install -g "$INSTALL_TARGET" >/dev/null 2>&1; then
   if [ "$SOURCE" = "registry" ]; then
     warn "Registry install failed (likely 404 — '$PKG' is not published yet). Falling back to GitHub: $DEFAULT_GIT_REPO."
     SOURCE="git"
     INSTALL_TARGET="github:$DEFAULT_GIT_REPO"
     if ! npm install -g "$INSTALL_TARGET" >/dev/null 2>&1; then
-      warn "GitHub install also failed; retrying with sudo..."
-      if command -v sudo >/dev/null 2>&1; then
-        sudo npm install -g "$INSTALL_TARGET" || die "Install still failed. Try a user-writable npm prefix: \`npm config set prefix ~/.npm-global\`."
-      else
-        die "Install failed and sudo is unavailable. Run: npm install -g $INSTALL_TARGET"
-      fi
+      die "Install failed. Fix your npm prefix:\n  npm config set prefix ~/.npm-global\n  export PATH=~/.npm-global/bin:\$PATH\nThen retry: npm install -g $INSTALL_TARGET"
     fi
   else
-    warn "Global install failed; retrying with sudo..."
-    if command -v sudo >/dev/null 2>&1; then
-      sudo npm install -g "$INSTALL_TARGET" || die "Install still failed. Try a user-writable npm prefix: \`npm config set prefix ~/.npm-global\`."
-    else
-      die "Install failed and sudo is unavailable. Run: npm install -g $INSTALL_TARGET"
+    die "Install failed. Fix your npm prefix:\n  npm config set prefix ~/.npm-global\n  export PATH=~/.npm-global/bin:\$PATH\nThen retry: npm install -g $INSTALL_TARGET"
     fi
   fi
 fi
