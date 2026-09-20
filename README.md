@@ -1,10 +1,10 @@
 <div align="center">
 
-# 💸 n-payment-skill
+# 💸 Payment Agent-Skill
 
-### **One skill. Your AI agent can pay, get paid, and earn yield.**
+### **A single skill that gives any AI agent the ability to pay, get paid, and move money across chains.**
 
-*No SDK glue. No protocol homework. Just talk to your agent.*
+*One install. One wallet. Every host. Every chain the SDK speaks.*
 
 [![npm](https://img.shields.io/npm/v/n-payment-skill?logo=npm&color=cb3837)](https://www.npmjs.com/package/n-payment-skill)
 [![hosts](https://img.shields.io/badge/works%20with-7%20AI%20hosts-blue)](#-works-with-every-agent-host)
@@ -18,208 +18,225 @@ npx -y github:phamdat721101/payment-skill
 
 ---
 
-## ✨ What You Get
+## 🧭 What is a payment agent-skill?
 
-| 💸 **Pay services** | 🏪 **Sell services** | 📈 **Earn while idle** |
-|:---|:---|:---|
-| Pay any paid API or web service from chat. The skill handles the wallet, the signature, the retry — your agent just gets the answer. | Turn any HTTP endpoint into a paid service in one prompt. The skill generates a drop-in Express middleware. | Idle balance = lost yield. One prompt parks your stablecoins in a battle-tested money market and gives them back the moment you need to spend. |
+A **payment agent-skill** is a small, self-installing package that turns any AI host (Claude Code, Kiro, Cursor, Windsurf, Continue, Gemini CLI, Copilot) into an economic actor. The host doesn't learn a new API. The user asks in plain English. The skill picks the right on-chain rail, signs the right transaction, and hands the result back to the agent.
 
-> **One wallet, one config, one install** — every feature shares the same secure local key.
+Three properties define the shape:
+
+- 🧩 **One skill, many hosts.** The same install produces MCP tools, function-call schemas, and OpenAPI actions — so the exact same 47 tools work under every host without per-host glue.
+- 🔐 **One wallet, many chains.** A single encrypted keyfile derives usable keypairs across EVM, XRPL, Stellar, Solana, Cosmos, and BTC-L2 chains.
+- 🛡️ **One policy engine, every call.** Every signing path passes through unlock → denylist → allowlist → per-tx cap → per-day cap → rate limit. No side doors.
+
+This repo is the reference implementation.
 
 ---
 
-## 🚀 1-Line Install
+## ✨ What it does
+
+The skill exposes 47 tools an agent can call. Grouped by intent:
+
+- 💸 **Pay any URL** — auto-detects x402 / MPP / GOAT paywalls, handles the 402 challenge, signs, retries, returns the response body.
+- 🏪 **Monetize an endpoint** — generates ready-to-paste Express middleware so any HTTP endpoint becomes a paid tool other agents can consume.
+- 🔎 **Discover services** — searches the bazaar, ranks providers by reputation-weighted routing, negotiates payment terms.
+- 📈 **Earn yield on idle stablecoins** — supplies USDC into a battle-tested money market and returns the receipt token. Withdraw any time.
+- 🔬 **Research DeFi positions and markets** — read-only Aave/XRPL-vault position snapshots and Morpho/Pendle market comparisons (APY, TVL, utilization, LTV, health factor). Pure reads, never signs.
+- 🌍 **Cash out to fiat** — MoneyGram retail pickup at ~500 000 locations across 174 countries via Stellar SEP-24; SEP-31 for agent-to-agent fiat payouts.
+- 🔁 **Bridge across chains** — XRP → FXRP on Flare, FXRP → RLUSD on XRPL/EVM, USDC → iUSD on Initia, BTC → USDC on GOAT.
+- 🪪 **On-chain identity + reputation** — register on ERC-8004, give and read feedback, delegate multi-agent budgets.
+- 🧾 **Universal QR** — generate ERC-681 (EVM) or SEP-7 (Stellar) payment URIs scannable by any wallet.
+
+Run `n-payment-skill tools list` for the full catalog. Run `n-payment-skill tools schema <name>` to inspect the input contract.
+
+---
+
+## 🚀 Install
+
+One command:
 
 ```bash
 npx -y github:phamdat721101/payment-skill
 ```
 
-That single command does everything for you:
+What that does:
 
-- 🧩 **Detects your AI host** (Claude Code, Kiro, Cursor, Windsurf, Continue, Gemini CLI, Copilot) and wires the skill in place.
-- 🔐 **Creates your wallet** — local, mode `0600`, never echoed to chat, never sent anywhere.
-- 💧 **Drips testnet funds** so you can try every flow without spending real money.
-- 🩺 **Runs a doctor check** and prints the next prompt to try.
-
-> 💡 Re-run it any time — it's idempotent. Upgrades the skill, never duplicates config.
-
----
-
-## 🎯 Three Prompts To Try
-
-Open your agent and paste these exactly. The skill picks the right tool every time.
-
-### 1️⃣ 💸 Pay for an API
-
-> *"Pay for https://x402-demo.example/data"*
-
-The agent reads the price tag, signs from your wallet, calls the endpoint, and hands you the response body. No keys. No CLI. No clicking *"Approve"*.
-
-### 2️⃣ 🏪 Monetize your own API
-
-> *"Create a paywall for /forecast at 0.05 USDC on base-sepolia"*
-
-You get ready-to-run Express middleware back:
-
-```ts
-import express from 'express';
-import { createAgentProvider, paidTool } from 'n-payment';
-
-const provider = createAgentProvider({
-  name: 'forecast',
-  payTo: '0xYourMerchantAddress',
-  chain: 'base-sepolia',
-  tools: [paidTool({ name: 'forecast', price: 50_000, handler: async () => ({ ok: true }) })],
-});
-
-express().use(provider.middleware()).listen(3000);
-```
-
-Drop it in, run `node server.js`, and any AI agent on the network can pay your endpoint.
-
-### 3️⃣ 📈 Earn yield while you wait to spend
-
-> *"Earn yield on my idle USDC"*
-
-The skill supplies your stablecoin into a leading on-chain money market and returns the yield-bearing receipt token. You keep custody. You can pull funds back any time:
-
-| Ask the agent | What happens |
-|---|---|
-| *"check my yield position"* | Reads your principal + accrued interest. |
-| *"supply 5 USDC to earn yield"* | Adds 5 USDC to the position. |
-| *"withdraw 0.5 USDC from yield"* | Pulls funds back to your spending wallet instantly. |
-
-> 📖 Full walkthroughs live in [`docs/`](./docs) — payments, monetization, and yield each get a 3-minute article.
+- 🧩 Detects your host and wires the skill into place.
+- 🔐 Creates an encrypted local wallet at `~/.n-payment/wallets/default.json` (chmod 0600, Web3 Secret Storage v3).
+- 💧 Drips testnet funds so you can try every flow without spending real money.
+- 🩺 Runs a doctor check and prints the next prompt to try.
+- 🔁 Idempotent — re-run any time to upgrade in place.
 
 ---
 
-## 🔐 Security Model — Encrypted, Policy-Gated, Auditable
+## 🎯 Prompts to try
 
-v2 retires the "unverified credentials, low trustworthiness, high
-permissions" warning at install time. The skill ships with a **hardware-
-wallet-style key vault** on disk and a **single-chokepoint guard** around
-every signing call. You get a working testnet wallet in one command, and a
-production-grade trust posture the moment you opt into mainnet.
+Open your agent and paste. The skill picks the right tool.
 
-| ✅ Property | What it means for you |
-|---|---|
-| 🔒 **Encrypted at rest** | Keys live in a Web3 Secret Storage v3 file (`scrypt` + AES-128-CTR + Keccak MAC). Interop with viem / ethers / geth / hardware-wallet imports. No plaintext after `setup`. |
-| 🔓 **In-memory unlock** | `n-payment-skill unlock` decrypts once per session. Cache auto-evicts after `policy.unlockTtlSeconds` (30 min default). No private key ever touches disk after the upgrade. |
-| 🛂 **Policy-gated dispatcher** | Every signing call passes through one guard: `unlock` → `denylist` → `allowlist` → `per-tx cap` → `per-day cap` (from audit log) → `rate limit`. Read-only tools bypass. |
-| 📜 **Audit log** | Append-only JSONL at `~/.n-payment/audit.log` (mode 0600, rotated at 5 MiB). Secret-shaped keys (`privateKey`, `passphrase`, `seed`, `bearer`, `api_key`, …) are redacted before write. |
-| 🛡️ **Bearer-token MCP HTTP** | `POST /mcp` requires `Authorization: Bearer <~/.n-payment/mcp.token>`. Fails closed (503) when no token is configured; 401 on missing/wrong. |
-| 🚫 **Mainnet guard** | Policy mode `bypass` is refused on `*-mainnet` chains. Default chain caps (e.g. `base-mainnet`) are 100k micros (~$0.10) per tx until you raise them. |
-| 🩹 **Migrates v1 in place** | Re-run `n-payment-skill setup` and any v1 plaintext keystore is encrypted in place; the original is preserved as `default.json.legacy` until you run `wallet purge-legacy`. |
-| 📦 **Supply chain proof** | npm artifact is published with `--provenance` via GitHub Actions; verifiable through Sigstore + the public transparency log. |
+- *"Pay for https://x402-demo.example/data"* → `pay`
+- *"Create a paywall for /forecast at 0.05 USDC on base-sepolia"* → `create_paywall`
+- *"Earn yield on my idle USDC"* → `aave_yield`
+- *"Cash out 20 USDC to USD through MoneyGram on Stellar testnet"* → `stellar_off_ramp`
+- *"Open a Stellar payment session with 1 USDC to G…"* → `stellar_session`
+- *"Register my agent identity on ERC-8004"* → `register_identity`
+- *"Bridge 10 XRP to FXRP on Flare"* → `xrpl_to_fxrp_bridge`
+
+Full walkthroughs live in [`docs/`](./docs).
+
+---
+
+## 🌍 Payment rails supported
+
+The SDK speaks many rails. The skill exposes them behind chain-agnostic tools so the agent picks the rail per request:
+
+- 🟣 **EVM x402** — Base, Arbitrum, Ethereum, Optimism, Ink, Unichain, Morph, BNB, Creditcoin
+- 🔵 **Stellar rails** — x402 + MPP on Soroban; MoneyGram SEP-24/31/38 off-ramp; SEP-7 QR
+- 🔷 **XRPL** — RLUSD payments, native vaults, DIA oracle, trust lines
+- 🟠 **GOAT Network** — BTC-collateralized USDC; BTC-lending; native swap router
+- 🟢 **Solana** — SPL USDC (via SDK)
+- 🟡 **Cosmos / Initia** — iUSD bridge via Skip API
+- 🔴 **Flare** — FAssets bridge (XRP ↔ FXRP), Smart Accounts
+- 🌊 **SpaceRouter (Creditcoin)** — residential-proxy payments in SPACE
+
+Each rail has an explicit testnet chain-key (`*-testnet`, `*-sepolia`, `*-devnet`, `*-coston2`, `*-hoodi`) and a mainnet chain-key. The skill defaults to testnet until you opt into mainnet.
+
+---
+
+## 🔐 Security posture
+
+Every property is enforced in code, not documentation:
+
+- 🔒 **Encrypted at rest** — keys live in Web3 Secret Storage v3 (`scrypt` + AES-128-CTR + Keccak MAC). Interop with viem, ethers, geth, hardware-wallet imports.
+- 🔓 **Session unlock** — `n-payment-skill unlock` decrypts once per session; cache auto-evicts after `policy.unlockTtlSeconds` (30 min default). Private key never touches disk again.
+- 🛂 **Policy-gated dispatcher** — every signing call passes through one guard chain: unlock → denylist → allowlist → per-tx cap → per-day cap → rate limit. Read-only tools bypass.
+- 📜 **Audit log** — append-only JSONL at `~/.n-payment/audit.log` (0600, rotated at 5 MiB). Secret-shaped keys (`privateKey`, `passphrase`, `seed`, `bearer`, `api_key`) are redacted before write.
+- 🛡️ **Bearer-token MCP HTTP** — `POST /mcp` requires `Authorization: Bearer <~/.n-payment/mcp.token>`. Fails closed (503) with no token; 401 with wrong token.
+- 🚫 **Mainnet guard** — policy mode `bypass` refused on `*-mainnet`. Default chain caps (e.g. `base-mainnet`) are 100 k micros (~$0.10) per tx until raised.
+- 🩹 **Legacy migration** — re-running `setup` encrypts any v1 plaintext keystore in place. The original is preserved as `.legacy` until `wallet purge-legacy`.
+- 📦 **Provenance** — npm artifact published with `--provenance` via GitHub Actions; verifiable through Sigstore and the public transparency log.
+
+Common CLI:
 
 ```bash
 n-payment-skill unlock                       # decrypt + cache (prompts)
 n-payment-skill policy show                  # current policy
 n-payment-skill policy set global.maxPerTxMicros 200000
-n-payment-skill audit tail -n 20             # last 20 signed/denied calls
+n-payment-skill audit tail -n 20             # last 20 signed / denied calls
 n-payment-skill mcp token                    # print the bearer token
 n-payment-skill wallet migrate               # v1 plaintext → v3 keystore
-n-payment-skill wallet purge-legacy          # delete the .legacy backup
 ```
 
 Opting into mainnet:
 
 ```bash
-n-payment-skill config set testnetMode false    # also flips policy.mode
+n-payment-skill config set testnetMode false                     # also flips policy.mode
 n-payment-skill policy set chains.base-mainnet.maxPerTxMicros 1000000
 ```
 
 ---
 
-## 🤖 Works With Every Agent Host
+## 🤖 Host compatibility
 
-| Host | Auto-install | Transport |
-|---|:---:|---|
-| 🟣 Claude Code | ✅ | filesystem skill |
-| 🟢 Kiro | ✅ | filesystem skill |
-| 🔷 Cursor | ✅ | MCP (stdio) |
-| 🌊 Windsurf | ✅ | MCP (stdio) |
-| 🔁 Continue | ✅ | MCP (stdio) |
-| ✨ Gemini CLI | ✅ | extension + MCP |
-| 🐙 GitHub Copilot | ✅ | project rules |
-| 💬 ChatGPT custom GPT | 📋 paste | OpenAPI Action |
-| 🤖 OpenAI Assistants | 📋 paste | `tools.json` export |
-| 🦙 LlamaIndex (JS / Python) | 📋 paste | function-tool export |
-| 🐍 Any Python agent | 📋 15 lines | MCP `stdio` subprocess |
+Auto-installed:
 
-Generic MCP works too:
+- 🟣 Claude Code — filesystem skill
+- 🟢 Kiro — filesystem skill
+- 🔷 Cursor — MCP (stdio)
+- 🌊 Windsurf — MCP (stdio)
+- 🔁 Continue — MCP (stdio)
+- ✨ Gemini CLI — extension + MCP
+- 🐙 GitHub Copilot — project rules
+
+Paste-ready:
+
+- 💬 ChatGPT custom GPT — OpenAPI action
+- 🤖 OpenAI Assistants — `tools.json` export
+- 🦙 LlamaIndex (JS / Python) — function-tool export
+- 🐍 Any Python agent — 15-line MCP stdio subprocess
+
+Generic MCP server:
 
 ```bash
 n-payment-skill mcp --http --port 8081   # POST /mcp, GET /health
 ```
 
-Need paste-ready bindings? `n-payment-skill export openai | chatgpt-gpt | langchain | llamaindex`.
+Bindings:
+
+```bash
+n-payment-skill export openai | chatgpt-gpt | langchain | llamaindex
+```
 
 ---
 
 ## ⚙️ Configuration
 
+Configuration lives in `~/.n-payment/config.json`. Change via CLI:
+
 ```bash
-# View / change settings
 n-payment-skill config get defaultChain
 n-payment-skill config set defaultChain base-sepolia
 n-payment-skill config set testnetMode false   # opt into mainnet
 n-payment-skill config set telemetry off       # default
 ```
 
-| Key | Default | Notes |
-|---|---|---|
-| `defaultWallet` | `default` | Wallet name under `~/.n-payment/wallets/`. |
-| `defaultChain` | `goat-testnet` | Sane testnet default. Many chains supported (EVM, XRPL, Stellar, Solana, Cosmos). |
-| `testnetMode` | `true` | Refuses mainnet sends until you flip it. |
-| `telemetry` | `off` | Opt in with `community` or `anonymous`. |
+Core keys:
 
-> 🔧 Per-feature credentials (off-ramp, residential proxy, bridges, etc.) live in env vars. Run `n-payment-skill tools list` or read [`SKILL.md`](./SKILL.md) for the full list — the skill always raises a friendly, fix-it-now error when a key is missing.
+- `defaultWallet` — wallet name under `~/.n-payment/wallets/`. Default `default`.
+- `defaultChain` — sane testnet default. Every rail supported.
+- `testnetMode` — refuses mainnet sends until flipped. Default `true`.
+- `telemetry` — opt in with `community` or `anonymous`. Default `off`.
+
+Per-feature credentials (off-ramp, residential proxy, bridges, MoneyGram anchor host) live in env vars. `n-payment-skill tools list` and [`SKILL.md`](./SKILL.md) enumerate every required var — the skill always raises a friendly, fix-it-now error when one is missing.
 
 ---
 
 ## 🛟 Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| `n-payment is not installed` | `npm i n-payment` |
-| `MAINNET_GUARD` | `n-payment-skill config set testnetMode false` |
-| `INSUFFICIENT_FUNDS` | `n-payment-skill faucet --chain base-sepolia` |
-| `INSUFFICIENT_GAS` (Base Sepolia) | Drip ~0.001 ETH at https://www.alchemy.com/faucets/base-sepolia |
-| `RPC unreachable` | Check internet / proxy, then `n-payment-skill doctor` |
-| Cursor / Windsurf doesn't see tools | Restart the IDE after install |
-| `npm i -g` permission denied | Use `sudo`, or set a user-writable `npm prefix` |
+Every failure returns `{ ok: false, code, hint }`. Common codes:
 
-Run `n-payment-skill doctor` any time for a colored health report.
+- `MAINNET_GUARD` — `n-payment-skill config set testnetMode false`
+- `INSUFFICIENT_FUNDS` — `n-payment-skill faucet --chain <chain>`
+- `INSUFFICIENT_GAS` (Base Sepolia) — drip ~0.001 ETH at https://www.alchemy.com/faucets/base-sepolia
+- `RPC unreachable` — check internet / proxy, then `n-payment-skill doctor`
+- `OFFRAMP_NO_ANCHOR` (Stellar) — testnet auto-registers SDF's `testanchor.stellar.org`; mainnet needs `STELLAR_ANCHOR_MONEYGRAM_COM_TOML_URL` (allowlisted MoneyGram Preview host)
+- `STELLAR_OZ_KEY_MISSING` — generate at https://channels.openzeppelin.com/gen; `export STELLAR_OZ_API_KEY=…`
+- `LOCKED` — `n-payment-skill unlock` (session cache is cold)
+- Cursor / Windsurf doesn't see tools — restart the IDE after install
+- `npm i -g` permission denied — use `sudo`, or set a user-writable `npm prefix`
+
+`n-payment-skill doctor` runs a colored health report on demand.
 
 ---
 
-## 🛠️ For Builders
+## 🛠️ Building on top
+
+Layout of a payment agent-skill:
 
 ```
 payment-skill/
 ├── SKILL.md         # canonical agent skill (auto-rendered with live tool list)
 ├── src/
-│   ├── tools.ts     # single source of truth — 39 tools
+│   ├── tools.ts     # single source of truth — 47 tools (declarative)
 │   ├── handlers.ts  # imperative implementations
-│   ├── wallet.ts    # OWS keyfile store (0600)
+│   ├── wallet.ts    # encrypted keyfile store
 │   ├── config.ts    # ~/.n-payment/config.json
 │   ├── hosts.ts     # declarative host registry
 │   ├── mcp.ts       # MCP stdio + HTTP transport
-│   ├── exports.ts   # paste-ready OpenAI / ChatGPT / LlamaIndex
+│   ├── exports.ts   # paste-ready OpenAI / ChatGPT / LangChain / LlamaIndex
 │   └── cli.ts       # commander-based CLI
-└── test/            # 127 vitest tests
+└── test/            # 277 vitest tests
 ```
 
-**Add a tool** — one entry in `src/tools.ts`, one handler in `src/handlers.ts`. Every host picks it up automatically (SKILL.md, MCP, OpenAI, LlamaIndex, ChatGPT).
+Extending the surface:
 
-**Add a host** — one `HostDefinition` in `src/hosts.ts` + one smoke test.
+- **Add a tool** — one entry in `src/tools.ts`, one handler in `src/handlers.ts`. Every host picks it up (SKILL.md, MCP, OpenAI, LlamaIndex, ChatGPT) via the shared declarative registry.
+- **Add a host** — one `HostDefinition` in `src/hosts.ts` plus one smoke test.
+- **Add a rail** — one adapter that satisfies the SDK's payment-client interface; register the chain key in `src/faucet.ts` `CHAIN_META`.
 
 ```bash
 git clone https://github.com/phamdat721101/payment-skill && cd payment-skill
 npm install
-npm test          # 127 tests
-npm run build
+npm test          # 277 vitest tests
+npm run build     # tsup ESM + .d.ts
 ```
 
 PRs welcome.
@@ -228,7 +245,7 @@ PRs welcome.
 
 <div align="center">
 
-**[📖 Docs](./docs)** · **[🛡️ Security](#-ows-wallet--local-secure-multi-chain)** · **[💬 Issues](https://github.com/phamdat721101/payment-skill/issues)**
+**[📖 Docs](./docs)** · **[🛡️ Security](#-security-posture)** · **[💬 Issues](https://github.com/phamdat721101/payment-skill/issues)**
 
 MIT · Built for the agentic economy.
 
