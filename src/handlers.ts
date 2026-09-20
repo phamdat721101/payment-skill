@@ -20,11 +20,13 @@ import {
 import { randomBytes } from 'node:crypto';
 import type { ChainKey, ToolContext, ToolResult } from './tools.js';
 import { ensureWallet, type WalletRecord } from './wallet.js';
+import { createXrplWallet, getXrplWalletProfile, getXrplWalletSeed } from './xrpl-wallet.js';
 import { CHAIN_META } from './faucet.js';
 import {
   buildStellarPaymentUri,
   fetchStellarBalance,
   isStellarConfigError,
+  pickStellarAnchorRegistry,
   pickStellarConfig,
 } from './stellar.js';
 import {
@@ -37,6 +39,8 @@ import {
   SpaceRouterError,
 } from './spacerouter.js';
 import * as flare from './flare.js';
+import { fetchMorphoPositionSnapshot, fetchMorphoMarketComparisons, type MorphoChain } from './morpho.js';
+import { fetchPendleMarketComparisons, fetchPendleMarketAnalysis } from './pendle.js';
 
 // v0.23 — iUSD on Initia (USDC EVM → iUSD bridge corridor).
 import {
@@ -892,25 +896,25 @@ export const policy_check = async (
 // XRPL handlers
 // ────────────────────────────────────────────────────────────────────────────
 
-function pickXrplSeed(env: NodeJS.ProcessEnv): string | null {
-  return env.XRPL_SEED ?? null;
+async function pickXrplSeed(env: NodeJS.ProcessEnv, walletName?: string): Promise<string | null> {
+  return walletName ? getXrplWalletSeed(walletName) : env.XRPL_SEED ?? null;
 }
 
-async function getXrplClient(chain: 'xrpl-testnet' | 'xrpl-mainnet', env: NodeJS.ProcessEnv) {
-  const seed = pickXrplSeed(env);
+async function getXrplClient(chain: 'xrpl-testnet' | 'xrpl-mainnet', env: NodeJS.ProcessEnv, walletName?: string) {
+  const seed = await pickXrplSeed(env, walletName);
   if (!seed) throw Object.assign(new Error('XRPL_SEED env var required.'), { code: 'XRPL_SEED_MISSING' });
   const { createXrplClient } = await np();
   return createXrplClient({ seed, network: chain === 'xrpl-mainnet' ? 'mainnet' : 'testnet' });
 }
 
 export const xrpl_pay = async (
-  args: { destination: string; amount: string; chain: 'xrpl-testnet' | 'xrpl-mainnet' },
+  args: { destination: string; amount: string; chain: 'xrpl-testnet' | 'xrpl-mainnet'; wallet_name?: string },
   ctx: ToolContext,
 ): Promise<ToolResult> =>
   wrap(async () => {
     const guard = guardMainnet(args.chain, ctx);
     if (guard) return guard;
-    const client = await getXrplClient(args.chain, ctx.env);
+    const client = await getXrplClient(args.chain, ctx.env, args.wallet_name);
     try {
       const r = await client.sendRLUSD(args.destination, args.amount);
       return ok(r);
@@ -918,11 +922,11 @@ export const xrpl_pay = async (
   });
 
 export const xrpl_balance = async (
-  args: { address?: string; chain: 'xrpl-testnet' | 'xrpl-mainnet' },
+  args: { address?: string; chain: 'xrpl-testnet' | 'xrpl-mainnet'; wallet_name?: string },
   ctx: ToolContext,
 ): Promise<ToolResult> =>
   wrap(async () => {
-    const client = await getXrplClient(args.chain, ctx.env);
+    const client = await getXrplClient(args.chain, ctx.env, args.wallet_name);
     try {
       const addr = args.address ?? await client.getAddress();
       const balance = await client.getBalance(addr);
@@ -963,6 +967,66 @@ export const xrpl_vault = async (
     } finally { await client.disconnect(); }
   });
 
+// Annualizes a point-in-time share price using a fixed reference of 1.0 at
+// vault creation. This is a best-effort, documented approximation: without
+// a historical share-price series the SDK doesn't expose, we cannot compute
+// a true time-weighted APY, so we derive an "implied" APY purely from the
+// current share price assuming linear accrual since epoch — callers needing
+// precise historical APY should track share_price over time themselves.
+// We intentionally return this as `implied_apy_pct` (not `apy_pct`) to keep
+// the approximation honest in the output shape.
+function impliedApyFromSharePrice(sharePrice: number): number {
+  if (!Number.isFinite(sharePrice) || sharePrice <= 0) return 0;
+  // sharePrice > 1 means shares have accrued value above par (1.0).
+  return (sharePrice - 1) * 100;
+}
+
+/**
+ * Read-only XRPL native vault research snapshot: total assets, total
+ * shares, current share price, and an implied APY derived from share price
+ * vs. par. Pure reads via the vault sub-client — no deposit/withdraw calls.
+ */
+export const xrpl_vault_analysis = async (
+  args: { vault_id: string; chain: 'xrpl-testnet' | 'xrpl-mainnet' },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    if (!args.vault_id) return fail('vault_id required', 'MISSING_ARG');
+    const guard = guardMainnet(args.chain, ctx);
+    if (guard) return guard;
+    const client = await getXrplClient(args.chain, ctx.env);
+    try {
+      const v = client.vault;
+      const [info, rate] = await Promise.all([
+        v.getVaultInfo(args.vault_id) as Promise<{
+          vaultId?: string;
+          asset?: { currency?: string; issuer?: string };
+          totalAssets?: string;
+          totalShares?: string;
+        }>,
+        v.getExchangeRate(args.vault_id) as Promise<{
+          deposit?: number;
+          withdrawal?: number;
+        }>,
+      ]);
+      // The vault's deposit rate (assets in → shares out) is the closest
+      // analogue to a "share price": how many assets one share is
+      // currently worth. withdrawal is the inverse-direction rate.
+      const sharePrice = rate?.deposit ?? 0;
+      return ok({
+        vault_id: info?.vaultId ?? args.vault_id,
+        asset: info?.asset,
+        total_assets: info?.totalAssets,
+        total_shares: info?.totalShares,
+        share_price: sharePrice,
+        withdrawal_rate: rate?.withdrawal,
+        implied_apy_pct: Number(impliedApyFromSharePrice(sharePrice).toFixed(4)),
+      });
+    } finally {
+      await client.disconnect();
+    }
+  });
+
 export const xrpl_oracle = async (
   args: { asset: string; chain: 'xrpl-testnet' | 'xrpl-mainnet' },
   ctx: ToolContext,
@@ -975,17 +1039,26 @@ export const xrpl_oracle = async (
   });
 
 export const xrpl_trust_line = async (
-  args: { chain: 'xrpl-testnet' | 'xrpl-mainnet' },
+  args: { chain: 'xrpl-testnet' | 'xrpl-mainnet'; wallet_name?: string },
   ctx: ToolContext,
 ): Promise<ToolResult> =>
   wrap(async () => {
     const guard = guardMainnet(args.chain, ctx);
     if (guard) return guard;
-    const client = await getXrplClient(args.chain, ctx.env);
+    const client = await getXrplClient(args.chain, ctx.env, args.wallet_name);
     try {
       const hash = await client.ensureTrustLine();
       return ok({ hash, existed: hash === null });
     } finally { await client.disconnect(); }
+  });
+
+export const xrpl_wallet = async (
+  args: { action: 'new' | 'show'; name: string },
+): Promise<ToolResult> =>
+  wrap(async () => {
+    if (args.action === 'new') return ok(await createXrplWallet(args.name));
+    const profile = await getXrplWalletProfile(args.name);
+    return profile ? ok(profile) : fail(`XRPL wallet "${args.name}" not found`, 'WALLET_NOT_FOUND');
   });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1066,6 +1139,184 @@ export const stellar_escrow = async (
         return ok(_stellarJobs.get(args.job_id) ?? { error: 'Job not in local cache' });
       }
       default: return fail(`Unknown action: ${args.action}`);
+    }
+  });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Stellar off-ramp (MoneyGram via n-payment v0.30 stellarAgentKit)
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Local-pure helper: strip non-serialisable fields (functions) from an
+ * SDK-returned handle before we JSON-encode it back to the MCP caller.
+ * The SDK returns a live handle with `.status()`; the agent only needs
+ * `id`, `moreInfoUrl`, `receiverInfoUrl`, and any other primitive fields.
+ */
+function serialiseAnchorHandle(handle: unknown): Record<string, unknown> {
+  if (!handle || typeof handle !== 'object') return { value: handle };
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(handle as Record<string, unknown>)) {
+    if (typeof v === 'function') continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+export const stellar_off_ramp = async (
+  args: {
+    action: 'quote' | 'cash_out' | 'b2b_payout' | 'corridors' | 'status';
+    chain: 'stellar-testnet' | 'stellar-mainnet';
+    amount?: string;
+    asset?: string;
+    fiat?: string;
+    country?: string;
+    receiver_id?: string;
+    quote_id?: string;
+    receiver_fields?: Record<string, string>;
+    handle_id?: string;
+    timeout_ms?: number;
+  },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const guard = guardMainnet(args.chain, ctx);
+    if (guard) return guard;
+
+    const w = await getWallet(ctx);
+    const cfg = pickStellarConfig(ctx.env, w.privateKey, args.chain);
+    if (isStellarConfigError(cfg)) return fail(cfg.error, cfg.code, cfg.hint);
+
+    const sdk = (await np()) as unknown as {
+      stellarAgentKit: (
+        signer: unknown,
+        opts: { registry: unknown; isMainnet: boolean; timeoutMs?: number },
+      ) => {
+        quote: (p: unknown) => Promise<unknown>;
+        cashOut: (amount: string, asset: string, fiat: string) => Promise<unknown>;
+        b2bPayout: (p: unknown) => Promise<unknown>;
+        corridors: () => Promise<unknown>;
+        status: (handleId: string) => Promise<unknown>;
+      };
+      StellarWallet: new (opts: { secretKey: string }) => unknown;
+    };
+    const registry = await pickStellarAnchorRegistry({ chain: args.chain, env: ctx.env });
+    const signer = new sdk.StellarWallet({ secretKey: cfg.secretKey });
+    const kit = sdk.stellarAgentKit(signer, {
+      registry,
+      isMainnet: args.chain === 'stellar-mainnet',
+      timeoutMs: args.timeout_ms,
+    });
+    const asset = args.asset ?? 'USDC';
+    const fiat = args.fiat ?? 'USD';
+
+    switch (args.action) {
+      case 'corridors':
+        return ok(await kit.corridors());
+      case 'quote':
+        if (!args.amount) return fail('amount required for quote', 'MISSING_ARG');
+        return ok(
+          await kit.quote({
+            amount: args.amount,
+            asset,
+            fiat,
+            country: args.country,
+          }),
+        );
+      case 'cash_out':
+        if (!args.amount) return fail('amount required for cash_out', 'MISSING_ARG');
+        return ok(serialiseAnchorHandle(await kit.cashOut(args.amount, asset, fiat)));
+      case 'b2b_payout':
+        if (!args.amount) return fail('amount required for b2b_payout', 'MISSING_ARG');
+        return ok(
+          serialiseAnchorHandle(
+            await kit.b2bPayout({
+              amount: args.amount,
+              asset,
+              fiat,
+              country: args.country,
+              receiverId: args.receiver_id,
+              quoteId: args.quote_id,
+              fields: args.receiver_fields,
+            }),
+          ),
+        );
+      case 'status':
+        if (!args.handle_id) return fail('handle_id required for status', 'MISSING_ARG');
+        return ok(await kit.status(args.handle_id));
+    }
+  });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Stellar MPP off-chain payment channel (n-payment v0.30 createStellarSession)
+//
+// Deliberately STATELESS — no module-level Map. The SDK returns { sessionId,
+// commitment } tuples; the caller passes them back on each call. Restarts,
+// forks, and multi-tenant MCP HTTP all work by construction.
+// ────────────────────────────────────────────────────────────────────────────
+export const stellar_session = async (
+  args: {
+    action: 'open' | 'commit' | 'close' | 'status';
+    chain: 'stellar-testnet' | 'stellar-mainnet';
+    provider?: string;
+    budget_micros?: number;
+    session_id?: string;
+    amount_micros?: number;
+    prev_commitment?: string;
+  },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const guard = guardMainnet(args.chain, ctx);
+    if (guard) return guard;
+
+    const w = await getWallet(ctx);
+    const cfg = pickStellarConfig(ctx.env, w.privateKey, args.chain);
+    if (isStellarConfigError(cfg)) return fail(cfg.error, cfg.code, cfg.hint);
+
+    const sdk = (await np()) as unknown as {
+      createPaymentClient: (opts: unknown) => {
+        createStellarSession: () => {
+          open: (p: unknown) => Promise<unknown>;
+          commit: (p: unknown) => Promise<unknown>;
+          close: (sessionId: string) => Promise<unknown>;
+          status: (sessionId: string) => Promise<unknown>;
+        };
+      };
+    };
+    const client = sdk.createPaymentClient({
+      chains: [args.chain],
+      ows: { wallet: ctx.walletName, privateKey: w.privateKey },
+      stellar: { secretKey: cfg.secretKey, channelsApiKey: cfg.channelsApiKey },
+    });
+    const sessions = client.createStellarSession();
+
+    switch (args.action) {
+      case 'open':
+        if (!args.provider || !args.budget_micros)
+          return fail('provider and budget_micros required for open', 'MISSING_ARG');
+        return ok(
+          await sessions.open({
+            provider: args.provider,
+            budgetMicros: args.budget_micros,
+            chain: args.chain,
+          }),
+        );
+      case 'commit':
+        if (!args.session_id || !args.amount_micros)
+          return fail('session_id and amount_micros required for commit', 'MISSING_ARG');
+        return ok(
+          await sessions.commit({
+            sessionId: args.session_id,
+            amountMicros: args.amount_micros,
+            prevCommitment: args.prev_commitment,
+          }),
+        );
+      case 'close':
+        if (!args.session_id) return fail('session_id required for close', 'MISSING_ARG');
+        return ok(await sessions.close(args.session_id));
+      case 'status':
+        if (!args.session_id) return fail('session_id required for status', 'MISSING_ARG');
+        return ok(await sessions.status(args.session_id));
     }
   });
 
@@ -1899,6 +2150,123 @@ async function aavePosition(c: AaveCtx, via: AaveVia): Promise<ToolResult> {
     via,
   });
 }
+
+// Aave V3 reserve rates are stored ray-scaled (27 decimals) and expressed
+// as a per-second rate compounded continuously. Converting the raw
+// `currentLiquidityRate` to an annualized percentage:
+//   APR = currentLiquidityRate / 1e27
+//   APY = (1 + APR / secondsPerYear) ** secondsPerYear - 1
+// This is Aave's own documented conversion (see Aave V3 docs, "Interest
+// Rates"). We report APY (compounded), matching what a supplier actually
+// earns, not the simple APR.
+const RAY = 10n ** 27n;
+const SECONDS_PER_YEAR = 31_536_000;
+
+function liquidityRateToApyPct(currentLiquidityRate: bigint): number {
+  const apr = Number(currentLiquidityRate) / Number(RAY);
+  const apy = (1 + apr / SECONDS_PER_YEAR) ** SECONDS_PER_YEAR - 1;
+  return apy * 100;
+}
+
+/** Test-only export: pure ray→APY-% conversion, no I/O. */
+export const __liquidityRateToApyPctForTests = liquidityRateToApyPct;
+
+/**
+ * Read-only Aave V3 position + market snapshot: supplied balance, current
+ * supply APY (derived from `getReserveData().currentLiquidityRate`), and
+ * pool-wide utilization. Pure reads — no signing, no dispatcher, no policy
+ * gate.
+ */
+async function aavePositionAnalysis(c: AaveCtx): Promise<ToolResult> {
+  let reserve: {
+    currentLiquidityRate: bigint;
+    aTokenAddress: Address;
+    variableDebtTokenAddress: Address;
+    stableDebtTokenAddress: Address;
+  };
+  try {
+    reserve = (await c.publicClient.readContract({
+      address: c.pool,
+      abi: AAVE_POOL_ABI,
+      functionName: 'getReserveData',
+      args: [c.usdc],
+    })) as {
+      currentLiquidityRate: bigint;
+      aTokenAddress: Address;
+      variableDebtTokenAddress: Address;
+      stableDebtTokenAddress: Address;
+    };
+  } catch {
+    return fail(
+      `Aave Pool at ${c.pool} did not return reserve data for USDC.`,
+      'AAVE_POOL_INVALID',
+      'Override with AAVE_POOL_ADDRESS env var.',
+    );
+  }
+  // Pool-wide utilization = totalDebt / (totalDebt + availableLiquidity).
+  // availableLiquidity is the pool's USDC held by the aToken contract;
+  // totalDebt is the sum of variable + stable debt token total supply.
+  // Each read is independently best-effort: if the pool doesn't expose one
+  // of these (e.g. a mock pool with no stable-debt token), we treat that
+  // leg as 0 rather than failing the whole snapshot.
+  const readBalanceOrZero = async (token: Address, holder: Address): Promise<bigint> => {
+    try {
+      return (await c.publicClient.readContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [holder],
+      })) as bigint;
+    } catch {
+      return 0n;
+    }
+  };
+  const readTotalSupplyOrZero = async (token: Address): Promise<bigint> => {
+    try {
+      return (await c.publicClient.readContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: 'totalSupply',
+      })) as bigint;
+    } catch {
+      return 0n;
+    }
+  };
+  const [aBal, uBal, availableLiquidity, variableDebt, stableDebt] = await Promise.all([
+    readATokenBalance(c, reserve.aTokenAddress),
+    readUsdcBalance(c),
+    readBalanceOrZero(c.usdc, reserve.aTokenAddress),
+    readTotalSupplyOrZero(reserve.variableDebtTokenAddress),
+    readTotalSupplyOrZero(reserve.stableDebtTokenAddress),
+  ]);
+  const supplyApyPct = liquidityRateToApyPct(reserve.currentLiquidityRate);
+  const totalDebt = variableDebt + stableDebt;
+  const totalLiquidity = totalDebt + availableLiquidity;
+  const utilizationPct =
+    totalLiquidity > 0n ? Number(((Number(totalDebt) / Number(totalLiquidity)) * 100).toFixed(2)) : null;
+  return ok({
+    chain: c.chain,
+    owner: c.owner,
+    aTokenAddress: reserve.aTokenAddress,
+    supplied_usdc: formatUnits(aBal, c.decimals),
+    wallet_usdc: formatUnits(uBal, c.decimals),
+    supply_apy_pct: Number(supplyApyPct.toFixed(4)),
+    utilization_pct: utilizationPct,
+  });
+}
+
+export const aave_position_analysis = async (
+  args: { chain?: 'base-sepolia'; wallet_name?: string },
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    const effectiveCtx: ToolContext = args.wallet_name
+      ? { ...ctx, walletName: args.wallet_name }
+      : ctx;
+    const c = await buildAaveCtx(effectiveCtx);
+    if (!('publicClient' in c)) return c; // ToolResult error
+    return aavePositionAnalysis(c);
+  });
 
 async function aaveSupply(
   c: AaveCtx,
@@ -2945,3 +3313,103 @@ export const iusd_bridge = async (
     return initiaErrorOf(e);
   }
 };
+
+
+// ────────────────────────────────────────────────────────────────────────────
+// Morpho read-only research (Blue markets) — independent of n-payment.
+//
+// n-payment has no Morpho adapter as of v0.31.0 (verified against its
+// README's adapter list and config reference). This tool talks directly to
+// @morpho-org/morpho-sdk's /fetch subpath (fetchAccrualPosition, fetchMarket)
+// via src/morpho.ts. Pure reads — no transaction building, no signing.
+// ────────────────────────────────────────────────────────────────────────────
+
+interface MorphoMarketScanArgs {
+  action: 'position' | 'compare';
+  chain: MorphoChain;
+  market_address?: string;
+  market_ids?: string[];
+  vault_address?: string;
+  user_address?: string;
+  asset?: string;
+  limit?: number;
+}
+
+export const morpho_market_scan = async (
+  args: MorphoMarketScanArgs,
+  _ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    if (args.action === 'position') {
+      if (!args.market_address) {
+        return fail('market_address required for action=position', 'MISSING_ARG');
+      }
+      if (!args.user_address) {
+        return fail('user_address required for action=position', 'MISSING_ARG');
+      }
+      const snapshot = await fetchMorphoPositionSnapshot({
+        chain: args.chain,
+        marketId: args.market_address,
+        user: args.user_address as Address,
+      });
+      return ok(snapshot);
+    }
+    if (args.action === 'compare') {
+      if (!args.market_ids || args.market_ids.length === 0) {
+        return fail('market_ids required for action=compare', 'MISSING_ARG');
+      }
+      const summaries = await fetchMorphoMarketComparisons({
+        chain: args.chain,
+        marketIds: args.market_ids,
+        limit: args.limit,
+      });
+      return ok({ chain: args.chain, markets: summaries });
+    }
+    return fail(`Unknown action: ${(args as { action: string }).action}`, 'INVALID_ACTION');
+  });
+
+
+// ────────────────────────────────────────────────────────────────────────────
+// Pendle read-only research — independent of n-payment. Plain HTTP against
+// Pendle's public Backend REST API (no SDK; see src/pendle.ts's header
+// comment for why the API, not the Hosted SDK, is correct for read-only
+// analytics). Pure reads — no signing, no dispatcher.
+// ────────────────────────────────────────────────────────────────────────────
+
+interface PendleMarketScanArgs {
+  action: 'compare' | 'analyze';
+  chain_id?: number;
+  market_address?: string;
+  asset?: string;
+  limit?: number;
+}
+
+export const pendle_market_scan = async (
+  args: PendleMarketScanArgs,
+  ctx: ToolContext,
+): Promise<ToolResult> =>
+  wrap(async () => {
+    if (args.action === 'compare') {
+      const markets = await fetchPendleMarketComparisons({
+        chainId: args.chain_id,
+        limit: args.limit,
+        apiKey: ctx.env.PENDLE_API_KEY,
+      });
+      return ok({ markets });
+    }
+    if (args.action === 'analyze') {
+      if (!args.market_address) {
+        return fail('market_address required for action=analyze', 'MISSING_ARG');
+      }
+      if (!args.chain_id) {
+        return fail('chain_id required for action=analyze', 'MISSING_ARG');
+      }
+      const analysis = await fetchPendleMarketAnalysis({
+        chainId: args.chain_id,
+        marketAddress: args.market_address,
+        apiKey: ctx.env.PENDLE_API_KEY,
+      });
+      return ok(analysis);
+    }
+    return fail(`Unknown action: ${(args as { action: string }).action}`, 'INVALID_ACTION');
+  });

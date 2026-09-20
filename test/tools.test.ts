@@ -2,8 +2,8 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { TOOLS, TOOL_BY_NAME, TOOL_NAMES, Chain, CHAIN_KEYS } from '../src/tools.js';
 
 describe('tool registry', () => {
-  it('exposes exactly 40 tools', () => {
-    expect(TOOLS).toHaveLength(40);
+  it('exposes exactly 42 tools', () => {
+    expect(TOOLS).toHaveLength(47);
   });
 
   it('Morph features are unified under a single morph_pay tool', () => {
@@ -139,6 +139,11 @@ describe('goat_swap_to_usdc — handler', () => {
     PolicyEngine: vi.fn().mockImplementation(() => ({})),
     AuditLog: vi.fn().mockImplementation(() => ({})),
     OWSWallet: vi.fn().mockImplementation(() => ({})),
+    // Stellar (v0.30) exports — overridden per-test in the stellar_off_ramp / stellar_session suites.
+    DefaultAnchorRegistry: vi.fn(),
+    StellarWallet: vi.fn(),
+    stellarAgentKit: vi.fn(),
+    createPaymentClient: vi.fn(),
   }));
 
   beforeEach(async () => {
@@ -344,5 +349,295 @@ describe('iusd_bridge — schema', () => {
       dest_chain: 'initia-testnet',
     });
     expect(r.success).toBe(true);
+  });
+});
+
+// ─── Stellar off-ramp (MoneyGram via n-payment v0.30) ────────────────────────
+describe('stellar_off_ramp — schema', () => {
+  const tool = TOOL_BY_NAME.stellar_off_ramp!;
+
+  it('is registered exactly once', () => {
+    expect(tool).toBeDefined();
+    expect(TOOL_NAMES.filter((n) => n === 'stellar_off_ramp')).toHaveLength(1);
+  });
+
+  it('defaults chain to stellar-testnet + asset USDC + fiat USD', () => {
+    const r = tool.schema.safeParse({ action: 'corridors' });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.chain).toBe('stellar-testnet');
+      expect(r.data.asset).toBe('USDC');
+      expect(r.data.fiat).toBe('USD');
+      expect(r.data.timeout_ms).toBe(12_000);
+    }
+  });
+
+  it('rejects quote / cash_out / b2b_payout without amount', () => {
+    for (const action of ['quote', 'cash_out', 'b2b_payout'] as const) {
+      expect(tool.schema.safeParse({ action }).success).toBe(false);
+    }
+  });
+
+  it('rejects status without handle_id', () => {
+    expect(tool.schema.safeParse({ action: 'status' }).success).toBe(false);
+    expect(tool.schema.safeParse({ action: 'status', handle_id: 'txn-1' }).success).toBe(true);
+  });
+
+  it('rejects non-Stellar chains', () => {
+    expect(tool.schema.safeParse({ action: 'corridors', chain: 'base-sepolia' }).success).toBe(false);
+  });
+
+  it('rejects malformed amount (non-decimal)', () => {
+    expect(tool.schema.safeParse({ action: 'quote', amount: 'abc' }).success).toBe(false);
+    expect(tool.schema.safeParse({ action: 'quote', amount: '10.5' }).success).toBe(true);
+  });
+});
+
+describe('stellar_off_ramp — handler', () => {
+  const ctx = {
+    walletName: 'test-wallet',
+    defaultChain: 'stellar-testnet' as const,
+    testnetMode: true,
+    env: {} as NodeJS.ProcessEnv,
+  };
+
+  // Mock stellarAgentKit — capture calls and return canned payloads.
+  const corridorsMock = vi.fn();
+  const quoteMock = vi.fn();
+  const cashOutMock = vi.fn();
+  const b2bMock = vi.fn();
+  const statusMock = vi.fn();
+  const kitFactoryMock = vi.fn(() => ({
+    corridors: corridorsMock,
+    quote: quoteMock,
+    cashOut: cashOutMock,
+    b2bPayout: b2bMock,
+    status: statusMock,
+  }));
+  const registryAdded: Array<Record<string, unknown>> = [];
+
+  beforeEach(async () => {
+    const np = await import('n-payment');
+    (np.DefaultAnchorRegistry as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      add: (a: Record<string, unknown>) => {
+        registryAdded.push(a);
+      },
+    }));
+    (np.StellarWallet as unknown as ReturnType<typeof vi.fn>).mockImplementation((opts: { secretKey: string }) => ({
+      secretKey: opts.secretKey,
+    }));
+    (np.stellarAgentKit as unknown as ReturnType<typeof vi.fn>).mockImplementation(kitFactoryMock);
+    kitFactoryMock.mockClear();
+    corridorsMock.mockReset();
+    quoteMock.mockReset();
+    cashOutMock.mockReset();
+    b2bMock.mockReset();
+    statusMock.mockReset();
+    registryAdded.length = 0;
+  });
+
+  it('action=corridors on testnet returns SDK payload verbatim', async () => {
+    corridorsMock.mockResolvedValue([{ homeDomain: 'testanchor.stellar.org' }]);
+    const { stellar_off_ramp } = await import('../src/handlers.js');
+    const r = await stellar_off_ramp({ action: 'corridors', chain: 'stellar-testnet' }, ctx);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data).toEqual([{ homeDomain: 'testanchor.stellar.org' }]);
+    // Registry auto-registered SDF test anchor.
+    expect(registryAdded[0]!.homeDomain).toBe('testanchor.stellar.org');
+    // isMainnet=false on testnet path.
+    expect(kitFactoryMock.mock.calls[0]![1].isMainnet).toBe(false);
+  });
+
+  it('action=cash_out on stellar-mainnet returns MAINNET_GUARD before SDK is loaded', async () => {
+    const { stellar_off_ramp } = await import('../src/handlers.js');
+    const r = await stellar_off_ramp(
+      { action: 'cash_out', chain: 'stellar-mainnet', amount: '10' },
+      { ...ctx, testnetMode: true },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('MAINNET_GUARD');
+    expect(kitFactoryMock).not.toHaveBeenCalled();
+  });
+
+  it('action=cash_out on stellar-mainnet without STELLAR_OZ_API_KEY returns STELLAR_OZ_KEY_MISSING', async () => {
+    const { stellar_off_ramp } = await import('../src/handlers.js');
+    const r = await stellar_off_ramp(
+      { action: 'cash_out', chain: 'stellar-mainnet', amount: '10' },
+      { ...ctx, testnetMode: false },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('STELLAR_OZ_KEY_MISSING');
+    expect(kitFactoryMock).not.toHaveBeenCalled();
+  });
+
+  it('action=quote forwards amount/asset/fiat/country 1:1 to the SDK', async () => {
+    quoteMock.mockResolvedValue({ quoteId: 'q-1', rate: '1.00', feeFixed: '0.10' });
+    const { stellar_off_ramp } = await import('../src/handlers.js');
+    const r = await stellar_off_ramp(
+      { action: 'quote', chain: 'stellar-testnet', amount: '10', country: 'US' },
+      ctx,
+    );
+    expect(r.ok).toBe(true);
+    expect(quoteMock).toHaveBeenCalledWith({
+      amount: '10',
+      asset: 'USDC',
+      fiat: 'USD',
+      country: 'US',
+    });
+  });
+
+  it('action=cash_out strips SDK-handle functions before returning', async () => {
+    cashOutMock.mockResolvedValue({
+      id: 'txn-42',
+      moreInfoUrl: 'https://testanchor.stellar.org/sep24/…',
+      status: () => Promise.resolve('pending'),
+    });
+    const { stellar_off_ramp } = await import('../src/handlers.js');
+    const r = await stellar_off_ramp(
+      { action: 'cash_out', chain: 'stellar-testnet', amount: '10' },
+      ctx,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const data = r.data as Record<string, unknown>;
+      expect(data.id).toBe('txn-42');
+      expect(data.moreInfoUrl).toContain('testanchor.stellar.org');
+      expect(data.status).toBeUndefined(); // function stripped for JSON safety
+    }
+  });
+
+  it('action=b2b_payout forwards receiver_id + quote_id + fields to SDK', async () => {
+    b2bMock.mockResolvedValue({ id: 't-99', receiverInfoUrl: null });
+    const { stellar_off_ramp } = await import('../src/handlers.js');
+    await stellar_off_ramp(
+      {
+        action: 'b2b_payout',
+        chain: 'stellar-testnet',
+        amount: '50',
+        country: 'US',
+        receiver_id: 'rcv-1',
+        quote_id: 'q-1',
+        receiver_fields: { first_name: 'Alice' },
+      },
+      ctx,
+    );
+    expect(b2bMock).toHaveBeenCalledWith({
+      amount: '50',
+      asset: 'USDC',
+      fiat: 'USD',
+      country: 'US',
+      receiverId: 'rcv-1',
+      quoteId: 'q-1',
+      fields: { first_name: 'Alice' },
+    });
+  });
+});
+
+// ─── Stellar MPP payment channels ────────────────────────────────────────────
+describe('stellar_session — schema', () => {
+  const tool = TOOL_BY_NAME.stellar_session!;
+
+  it('is registered exactly once', () => {
+    expect(tool).toBeDefined();
+    expect(TOOL_NAMES.filter((n) => n === 'stellar_session')).toHaveLength(1);
+  });
+
+  it('open requires provider (G-address) + budget_micros', () => {
+    expect(tool.schema.safeParse({ action: 'open' }).success).toBe(false);
+    expect(tool.schema.safeParse({ action: 'open', provider: 'GA'.padEnd(56, 'A'), budget_micros: 1_000_000 }).success).toBe(true);
+    // non-Stellar provider is rejected
+    expect(tool.schema.safeParse({ action: 'open', provider: '0xdeadbeef', budget_micros: 1_000_000 }).success).toBe(false);
+  });
+
+  it('commit requires session_id + amount_micros', () => {
+    expect(tool.schema.safeParse({ action: 'commit' }).success).toBe(false);
+    expect(tool.schema.safeParse({ action: 'commit', session_id: 's-1', amount_micros: 1000 }).success).toBe(true);
+  });
+
+  it('close / status require only session_id', () => {
+    expect(tool.schema.safeParse({ action: 'close' }).success).toBe(false);
+    expect(tool.schema.safeParse({ action: 'close', session_id: 's-1' }).success).toBe(true);
+    expect(tool.schema.safeParse({ action: 'status', session_id: 's-1' }).success).toBe(true);
+  });
+});
+
+describe('stellar_session — statelessness (no module-level Map)', () => {
+  const ctx = {
+    walletName: 'test-wallet',
+    defaultChain: 'stellar-testnet' as const,
+    testnetMode: true,
+    env: {} as NodeJS.ProcessEnv,
+  };
+
+  const openMock = vi.fn();
+  const commitMock = vi.fn();
+  const closeMock = vi.fn();
+  const sessionsMock = { open: openMock, commit: commitMock, close: closeMock, status: vi.fn() };
+  const createStellarSessionMock = vi.fn(() => sessionsMock);
+  const clientMock = { createStellarSession: createStellarSessionMock };
+  const createPaymentClientMock = vi.fn(() => clientMock);
+
+  beforeEach(async () => {
+    const np = await import('n-payment');
+    (np.createPaymentClient as unknown as ReturnType<typeof vi.fn>).mockImplementation(createPaymentClientMock);
+    createPaymentClientMock.mockClear();
+    createStellarSessionMock.mockClear();
+    openMock.mockReset();
+    commitMock.mockReset();
+    closeMock.mockReset();
+  });
+
+  it('commit forwards caller-supplied session_id + prev_commitment (stateless)', async () => {
+    commitMock.mockResolvedValue({ commitment: '0xdead', cumulative: 1000 });
+    const { stellar_session } = await import('../src/handlers.js');
+    const r = await stellar_session(
+      {
+        action: 'commit',
+        chain: 'stellar-testnet',
+        session_id: 'sess-abc',
+        amount_micros: 1000,
+        prev_commitment: '0xbeef',
+      },
+      ctx,
+    );
+    expect(r.ok).toBe(true);
+    expect(commitMock).toHaveBeenCalledWith({
+      sessionId: 'sess-abc',
+      amountMicros: 1000,
+      prevCommitment: '0xbeef',
+    });
+  });
+
+  it('source file contains ZERO module-level Map instances inside stellar_session (anti-mistake invariant)', async () => {
+    // Read handlers.ts and assert the stellar_session block does not
+    // create a module-level Map — a repeat of the stellar_escrow mistake
+    // would cause memory leaks + break multi-tenant MCP HTTP hosts.
+    const src = readFileSync(
+      new URL('../src/handlers.ts', import.meta.url),
+      'utf8',
+    );
+    const idx = src.indexOf('export const stellar_session');
+    expect(idx).toBeGreaterThan(0);
+    // Look at everything from the export up to the next top-level export.
+    const nextExport = src.indexOf('\nexport const ', idx + 1);
+    const block = src.slice(idx, nextExport > 0 ? nextExport : src.length);
+    expect(block).not.toMatch(/new Map\s*[<(]/);
+    expect(block).not.toMatch(/^\s*const _sess\w* = new Map/m);
+  });
+
+  it('open on mainnet + testnetMode=true short-circuits to MAINNET_GUARD', async () => {
+    const { stellar_session } = await import('../src/handlers.js');
+    const r = await stellar_session(
+      {
+        action: 'open',
+        chain: 'stellar-mainnet',
+        provider: 'G' + 'A'.repeat(55),
+        budget_micros: 1_000_000,
+      },
+      { ...ctx, testnetMode: true },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('MAINNET_GUARD');
+    expect(createPaymentClientMock).not.toHaveBeenCalled();
   });
 });

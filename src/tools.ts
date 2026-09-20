@@ -380,11 +380,18 @@ export const TOOLS: ReadonlyArray<Tool> = [
 
   // ─── XRPL (Ripple) tools ─────────────────────────────────────────────────
   def({
+    name: 'xrpl_wallet',
+    description: 'Create or inspect a local XRPL wallet profile. Its seed is stored only in macOS Keychain and is never returned.',
+    schema: z.object({ action: z.enum(['new', 'show']), name: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/) }),
+    handler: h.xrpl_wallet as never,
+  }),
+  def({
     name: 'xrpl_pay',
     description: 'Send RLUSD on XRPL to a destination address.',
     schema: z.object({
       destination: z.string().min(25),
       amount: z.string().regex(/^\d+(\.\d+)?$/),
+      wallet_name: z.string().optional().describe('Use a locally managed XRPL Keychain wallet instead of XRPL_SEED.'),
       chain: z.enum(['xrpl-testnet', 'xrpl-mainnet']).default('xrpl-testnet'),
     }),
     handler: h.xrpl_pay as never,
@@ -395,6 +402,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     description: 'Check RLUSD balance on XRPL.',
     schema: z.object({
       address: z.string().min(25).optional(),
+      wallet_name: z.string().optional(),
       chain: z.enum(['xrpl-testnet', 'xrpl-mainnet']).default('xrpl-testnet'),
     }),
     handler: h.xrpl_balance as never,
@@ -413,6 +421,64 @@ export const TOOLS: ReadonlyArray<Tool> = [
     handler: h.xrpl_vault as never,
   }),
 
+  // ─── XRPL native vault read-only research snapshot ─────────────────────────
+  def({
+    name: 'xrpl_vault_analysis',
+    description:
+      'Read-only XRPL native vault research snapshot: total assets, total shares, current share price, and an implied APY derived from share price vs. par. Pure reads via the vault sub-client — no deposit/withdraw calls, no signing.',
+    schema: z.object({
+      vault_id: z.string().min(1, 'vault_id required'),
+      chain: z.enum(['xrpl-testnet', 'xrpl-mainnet']).default('xrpl-testnet'),
+    }),
+    handler: h.xrpl_vault_analysis as never,
+  }),
+
+  // ─── Morpho Blue read-only research (independent of n-payment) ─────────────
+  def({
+    name: 'morpho_market_scan',
+    description:
+      "Read-only Morpho Blue research via @morpho-org/morpho-sdk (independent of n-payment, which has no Morpho adapter). action=position returns a user's supplied/borrowed assets, collateral, LTV, health factor, and liquidation price for one market. action=compare fetches N candidate market_ids and ranks them by supply APY, TVL, and utilization (the SDK has no market-discovery endpoint, so candidates must be supplied). Pure on-chain reads — no signing, no dispatcher.",
+    schema: z.object({
+      action: z.enum(['position', 'compare']),
+      chain: z.enum(['base-mainnet', 'base-sepolia']).default('base-mainnet'),
+      market_address: z
+        .string()
+        .regex(/^0x[a-fA-F0-9]{64}$/, 'Morpho market id: 0x + 64 hex chars')
+        .optional()
+        .describe('Morpho Blue market id. Required for action=position.'),
+      market_ids: z
+        .array(z.string().regex(/^0x[a-fA-F0-9]{64}$/, 'Morpho market id: 0x + 64 hex chars'))
+        .min(1)
+        .max(20)
+        .optional()
+        .describe('Candidate market ids to rank. Required for action=compare.'),
+      vault_address: Address.optional(),
+      user_address: Address.optional().describe('Required for action=position.'),
+      asset: z.string().optional().describe('Filter for action=compare (e.g. USDC).'),
+      limit: z.number().int().positive().max(50).optional(),
+    }),
+    handler: h.morpho_market_scan as never,
+  }),
+
+  // ─── Pendle read-only research (independent of n-payment) ──────────────────
+  def({
+    name: 'pendle_market_scan',
+    description:
+      "Read-only Pendle market research via Pendle's public Backend REST API (no SDK; n-payment has no Pendle integration). action=compare ranks markets across chains by implied APY, TVL, and volume (GET /v2/markets/all). action=analyze returns the APY composition breakdown (YT/LP category splits — protocol yield, rewards, fixed yield, incentives) for one market via GET /v3/{chain_id}/markets/{market_address}/historical-data. Pure HTTP reads — no signing, no dispatcher. Optional PENDLE_API_KEY env var raises the free-tier rate limit; never required for baseline reads.",
+    schema: z.object({
+      action: z.enum(['compare', 'analyze']),
+      chain_id: z.number().int().positive().optional().describe('Filter results to one chain.'),
+      market_address: z
+        .string()
+        .regex(/^0x[a-fA-F0-9]{40}$/, 'invalid 0x address')
+        .optional()
+        .describe('Required for action=analyze.'),
+      asset: z.string().optional().describe('Filter for action=compare (e.g. USDC).'),
+      limit: z.number().int().positive().max(100).default(10),
+    }),
+    handler: h.pendle_market_scan as never,
+  }),
+
   def({
     name: 'xrpl_oracle',
     description: 'Get DIA oracle price feed on XRPL (RLUSD, XRP, BTC, ETH).',
@@ -428,6 +494,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     description: 'Ensure RLUSD trust line exists on the agent XRPL account.',
     schema: z.object({
       chain: z.enum(['xrpl-testnet', 'xrpl-mainnet']).default('xrpl-testnet'),
+      wallet_name: z.string().optional().describe('Use a locally managed XRPL Keychain wallet instead of XRPL_SEED.'),
     }),
     handler: h.xrpl_trust_line as never,
   }),
@@ -460,6 +527,77 @@ export const TOOLS: ReadonlyArray<Tool> = [
       chain: z.enum(['stellar-testnet', 'stellar-mainnet']).default('stellar-testnet'),
     }),
     handler: h.stellar_escrow as never,
+  }),
+
+  // ─── Stellar off-ramp (MoneyGram via n-payment v0.30 stellarAgentKit) ─────
+  def({
+    name: 'stellar_off_ramp',
+    description:
+      'MoneyGram-via-Stellar off-ramp (n-payment v0.30). Actions: quote (SEP-38 pre-flight), cash_out (SEP-24 retail cash pickup), b2b_payout (SEP-31 direct fiat payment), corridors (list anchors × corridors), status. ' +
+      'Testnet uses SDF\'s testanchor.stellar.org (zero-config demo). ' +
+      'Mainnet requires STELLAR_ANCHOR_MONEYGRAM_COM_TOML_URL (allowlisted Preview host) + STELLAR_OZ_API_KEY.',
+    schema: z
+      .object({
+        action: z.enum(['quote', 'cash_out', 'b2b_payout', 'corridors', 'status']),
+        chain: z.enum(['stellar-testnet', 'stellar-mainnet']).default('stellar-testnet'),
+        amount: z.string().regex(/^\d+(\.\d{1,7})?$/, 'decimal like "10.00"').optional(),
+        asset: z.string().default('USDC'),
+        fiat: z.string().length(3).default('USD'),
+        country: z.string().length(2).optional().describe('ISO 3166-1 alpha-2 country code'),
+        receiver_id: z.string().optional().describe('b2b_payout: SEP-12 receiver id (reused across calls)'),
+        quote_id: z.string().optional().describe('b2b_payout: bind to a prior SEP-38 quote'),
+        receiver_fields: z.record(z.string()).optional().describe('b2b_payout: KYC fields for first-call receiver registration'),
+        handle_id: z.string().optional().describe('status: transaction id from cash_out / b2b_payout'),
+        timeout_ms: z.number().int().min(1000).max(60_000).default(12_000),
+      })
+      .superRefine((v, ctx) => {
+        if ((v.action === 'quote' || v.action === 'cash_out' || v.action === 'b2b_payout') && !v.amount) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: `amount required for action=${v.action}`, path: ['amount'] });
+        }
+        if (v.action === 'status' && !v.handle_id) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'handle_id required for action=status', path: ['handle_id'] });
+        }
+      }),
+    handler: h.stellar_off_ramp as never,
+  }),
+
+  // ─── Stellar MPP off-chain payment channel (n-payment v0.30) ──────────────
+  def({
+    name: 'stellar_session',
+    description:
+      'MPP off-chain payment channel on Stellar (n-payment v0.30 createStellarSession). ' +
+      'Actions: open (deposit + issue channel receipt), commit (sign one off-chain commitment), ' +
+      'close (single on-chain settlement tx), status (read cumulative commitments). ' +
+      'Stateless: session_id + prev_commitment travel with the caller, so restarts and multi-tenant hosts are safe.',
+    schema: z
+      .object({
+        action: z.enum(['open', 'commit', 'close', 'status']),
+        chain: z.enum(['stellar-testnet', 'stellar-mainnet']).default('stellar-testnet'),
+        provider: z.string().regex(/^G[A-Z2-7]{55}$/, 'Stellar G-address').optional(),
+        budget_micros: PriceMicros.optional().describe('open: total channel budget in USDC micros (1 USDC = 1_000_000)'),
+        session_id: z.string().optional(),
+        amount_micros: PriceMicros.optional().describe('commit: amount for this single commitment'),
+        prev_commitment: z.string().optional().describe('commit: prior commitment hash (replay-safety, stateless carry)'),
+      })
+      .superRefine((v, ctx) => {
+        const need = (k: string, present: unknown) => {
+          if (present == null) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${k} required for action=${v.action}`, path: [k] });
+          }
+        };
+        if (v.action === 'open') {
+          need('provider', v.provider);
+          need('budget_micros', v.budget_micros);
+        }
+        if (v.action === 'commit') {
+          need('session_id', v.session_id);
+          need('amount_micros', v.amount_micros);
+        }
+        if (v.action === 'close' || v.action === 'status') {
+          need('session_id', v.session_id);
+        }
+      }),
+    handler: h.stellar_session as never,
   }),
 
   // ─── Agent Card (A2A) ──────────────────────────────────────────────────────
@@ -524,6 +662,21 @@ export const TOOLS: ReadonlyArray<Tool> = [
         .describe('demo only: auto-call the Circle faucet when balance < demo amount.'),
     }),
     handler: h.aave_yield as never,
+  }),
+
+  // ─── Aave V3 read-only position/market analysis (Base Sepolia, USDC) ──────
+  def({
+    name: 'aave_position_analysis',
+    description:
+      "Read-only Aave V3 research snapshot on Base Sepolia (USDC): supplied balance, current supply APY (derived from the Pool's currentLiquidityRate), and pool-wide utilization (total debt / total liquidity). Pure on-chain reads — no signing, no payment dispatcher. Note: like aave_yield, this shares buildAaveCtx and will auto-create a local wallet file (no funds, no risk) if one doesn't exist yet, purely to derive the address to inspect; it never signs or broadcasts a transaction. Override AAVE_POOL_ADDRESS to target a different V3 Pool.",
+    schema: z.object({
+      chain: z.enum(['base-sepolia']).default('base-sepolia'),
+      wallet_name: z
+        .string()
+        .optional()
+        .describe('Wallet whose address to inspect. Defaults to the active wallet.'),
+    }),
+    handler: h.aave_position_analysis as never,
   }),
 
   // ─── SpaceRouter (SpaceCoin) — residential proxy + on-chain SPACE escrow ─
