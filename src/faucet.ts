@@ -352,6 +352,7 @@ export async function runDoctor(
   address: Address,
   chain: ChainKey,
   fetchFn: typeof fetch = fetch,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
   const meta = CHAIN_META[chain];
@@ -427,6 +428,56 @@ export async function runDoctor(
             ? `Programmatic Tempo faucet available.`
             : `Manual faucet: ${meta.manualFaucetUrl ?? '(none)'}`,
     });
+  }
+
+  // Stellar off-ramp (MoneyGram-via-Stellar) — testnet reachability + mainnet env.
+  if (chain === 'stellar-testnet') {
+    try {
+      const r = await fetchFn('https://testanchor.stellar.org/.well-known/stellar.toml', {
+        method: 'HEAD',
+      });
+      checks.push({
+        name: 'stellar_off_ramp',
+        status: r.ok ? 'ok' : 'warn',
+        message: r.ok
+          ? 'SDF test anchor (testanchor.stellar.org) reachable — off-ramp demo ready.'
+          : `SDF test anchor returned ${r.status}.`,
+      });
+    } catch (e) {
+      checks.push({
+        name: 'stellar_off_ramp',
+        status: 'warn',
+        message: `SDF test anchor unreachable: ${(e as Error).message}`,
+        hint: 'Off-ramp demo needs network access to testanchor.stellar.org.',
+      });
+    }
+  } else if (chain === 'stellar-mainnet') {
+    const anchorUrl = env.STELLAR_ANCHOR_MONEYGRAM_COM_TOML_URL;
+    if (!anchorUrl) {
+      checks.push({
+        name: 'stellar_off_ramp',
+        status: 'warn',
+        message: 'MoneyGram anchor not configured for mainnet.',
+        hint: 'Apply at https://developer.moneygram.com/moneygram-developer/docs/access-to-moneygram-ramps then export STELLAR_ANCHOR_MONEYGRAM_COM_TOML_URL=…',
+      });
+    } else {
+      try {
+        const r = await fetchFn(anchorUrl, { method: 'HEAD' });
+        checks.push({
+          name: 'stellar_off_ramp',
+          status: r.ok ? 'ok' : 'warn',
+          message: r.ok
+            ? `MoneyGram anchor reachable: ${anchorUrl}`
+            : `Anchor returned ${r.status} for ${anchorUrl}`,
+        });
+      } catch (e) {
+        checks.push({
+          name: 'stellar_off_ramp',
+          status: 'warn',
+          message: `MoneyGram anchor unreachable: ${(e as Error).message}`,
+        });
+      }
+    }
   }
 
   return {

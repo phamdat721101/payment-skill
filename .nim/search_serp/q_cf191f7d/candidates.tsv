@@ -1,0 +1,31 @@
+SCORE	ENTITY_ID	TYPE	URI	GIST
+24.978673323216668	file::docs/prds/defi-research-tools-spec.md	CodeFile	file://docs/prds/defi-research-tools-spec.md	# DeFi Research Tools — Spec & Verification Handoff
+20.040296480225205	file::docs/fxrp-mint-article.md	CodeFile	file://docs/fxrp-mint-article.md	# 🪙→🔥 Bridge XRP to FXRP in one prompt
+18.87558807743707	file::README.md	CodeFile	file://README.md	<div align="center">
+17.372841471942632	file::SKILL.md	CodeFile	file://SKILL.md	---
+16.533072755648462	file::src/tools.ts	CodeFile	file://src/tools.ts	// Single source of truth for every tool the agent can call.
+14.812609952429758	file::docs/PRD-v032-defi-lending-rollover-research-engine.md	CodeFile	file://docs/PRD-v032-defi-lending-rollover-research-engine.md	# PRD: DeFi Lending Rollover Research & Execution Engine (v0.32.0)
+12.43331277926856	file::docs/stellar-latest-updates-2026-05.md	CodeFile	file://docs/stellar-latest-updates-2026-05.md	# 🌟 Stellar — Latest Updates (May 2026)
+12.028976965634405	file::test/schema.test.ts	CodeFile	file://test/schema.test.ts	import { describe, expect, it } from 'vitest';
+10.803516548290933	file::src/handlers.ts	CodeFile	file://src/handlers.ts	// 20 tool handlers — the imperative half of the registry.
+10.63052919878155	file::test/mcp.test.ts	CodeFile	file://test/mcp.test.ts	import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+10.003303428133759	file::src/schema.ts	CodeFile	file://src/schema.ts	// Pure schema converters. Used by MCP `tools/list` (JSON Schema), the
+9.754250022017782	file::docs/article.md	CodeFile	file://docs/article.md	# Add web3 payments to your product in one line
+9.446910879330392	file::test/pendle.test.ts	CodeFile	file://test/pendle.test.ts	import { afterEach, describe, expect, it, vi } from 'vitest';
+8.893110007201335	file::install.sh	CodeFile	file://install.sh	#!/usr/bin/env sh
+8.75050568775196	file::docs/n-payment-v029-rlusd-learnings.md	CodeFile	file://docs/n-payment-v029-rlusd-learnings.md	# n-payment v0.29.0 — XRPL RLUSD agentic-payment learnings
+8.380916505660608	file::src/pendle.ts	CodeFile	file://src/pendle.ts	// Pendle read-only research module — market comparison + APY-breakdown
+8.333596118829588	file::docs/launch-article.md	CodeFile	file://docs/launch-article.md	# 🚀 From `npx` to USDC + APY in 90 seconds
+7.860928008764674	file::src/mcp.ts	CodeFile	file://src/mcp.ts	// MCP server — one shared dispatcher, two transports (stdio + HTTP).
+7.7858957624329825	file::test/spacerouter.test.ts	CodeFile	file://test/spacerouter.test.ts	import { mkdtempSync, readFileSync, statSync, existsSync } from 'node:fs';
+7.508986658875326	file::test/morpho.test.ts	CodeFile	file://test/morpho.test.ts	import { afterEach, describe, expect, it, vi } from 'vitest';
+7.450703275374472	file::test/security.test.ts	CodeFile	file://test/security.test.ts	// End-to-end integration tests for the v2 Trust Upgrade.
+7.234326430170741	file::test/tools.test.ts	CodeFile	file://test/tools.test.ts	import { describe, expect, it, beforeEach } from 'vitest';
+7.1102314006987255	file::src/cli.ts	CodeFile	file://src/cli.ts	// `n-payment-skill` CLI — commander-based subcommand router.
+7.048595773946575	file::docs/morph-article.md	CodeFile	file://docs/morph-article.md	# 🤖💸 Pay-Per-Call AI Agents on Morph in One Line
+6.971010646816116	file::src/wallet.ts	CodeFile	file://src/wallet.ts	// Local wallet store at ~/.n-payment/wallets/<name>.json (chmod 0600).
+6.78400015756693	file::src/morpho.ts	CodeFile	file://src/morpho.ts	// Morpho read-only research module — position snapshots + market comparison
+6.779849918663046	file::test/aave.test.ts	CodeFile	file://test/aave.test.ts	import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+6.1851457244088754	file::docs/prds/prd-03-installer-dry-run-and-consent.md	CodeFile	file://docs/prds/prd-03-installer-dry-run-and-consent.md	# PRD-03: Installer Dry-Run and Explicit Consent for Host Config Writes
+6.170223521447704	file::docs/aave-yield-article.md	CodeFile	file://docs/aave-yield-article.md	# 💸 Stop letting your AI agent's USDC sit idle
+5.777314003829196	file::test/morph.test.ts	CodeFile	file://test/morph.test.ts	// Reference-Key helpers live inline in `src/handlers.ts` (the only Morph

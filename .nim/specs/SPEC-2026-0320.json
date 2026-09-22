@@ -1,0 +1,67 @@
+{
+  "spec_id": "SPEC-2026-0320",
+  "feature_name": "Read-only DeFi rollover research engine",
+  "dependencies": [
+    {
+      "package_or_module": "src/rollover.ts",
+      "symbol": "analyzeRolloverOpportunity",
+      "file_location": "src/rollover.ts"
+    },
+    {
+      "package_or_module": "src/handlers.ts",
+      "symbol": "defi_rollover_decision_engine",
+      "file_location": "src/handlers.ts"
+    },
+    {
+      "package_or_module": "src/morpho.ts",
+      "symbol": "fetchMorphoPositionSnapshot",
+      "file_location": "src/morpho.ts"
+    },
+    {
+      "package_or_module": "src/morpho.ts",
+      "symbol": "fetchMorphoMarketComparisons",
+      "file_location": "src/morpho.ts"
+    },
+    {
+      "package_or_module": "src/tools.ts",
+      "symbol": "TOOLS",
+      "file_location": "src/tools.ts"
+    }
+  ],
+  "architecture": {
+    "pattern": "read-only analysis orchestrator behind the declarative tool registry",
+    "isolation_boundaries": "No wallet access, calldata generation, signing, flash-loan selection, relay dispatch, or broadcast.",
+    "execution_flow": [
+      "Validate tool input with Zod.",
+      "Fetch the current Morpho position and supplied candidate market summaries.",
+      "Evaluate LTV, health, maturity, carry, and capacity evidence.",
+      "Return a provenance-labelled, non-executable research intent."
+    ]
+  },
+  "data_contracts": {
+    "inputs": {
+      "chain": "ethereum-mainnet | base-mainnet | arbitrum-one",
+      "current_market_id": "32-byte Morpho market ID",
+      "candidate_market_ids": "1-10 caller-supplied Morpho market IDs",
+      "risk_policy": "integer basis-point and health-factor thresholds"
+    },
+    "outputs": {
+      "current_position": "base-unit strings, LTV bps, health factor, and provenance",
+      "candidates": "liquidity, utilization, capacity status, and deterministic rank",
+      "rollover_intent": "explicitly non-executable requirements and blockers"
+    },
+    "error_states": [
+      "MORPHO_SDK_MISSING",
+      "INVALID_MARKET_ID",
+      "CANDIDATE_UNAVAILABLE",
+      "LOAN_ASSET_COMPATIBILITY_UNVERIFIED",
+      "PINNED_BLOCK_UNAVAILABLE"
+    ]
+  },
+  "test_criteria": [
+    "Schema parsing applies the documented risk-policy defaults.",
+    "High-risk positions with compatible capacity return RESEARCH_ROLLOVER and a non-executable intent.",
+    "Candidate failures remain visible without hiding current-position analysis.",
+    "The complete test suite and TypeScript check pass except for documented unrelated baseline failures."
+  ]
+}

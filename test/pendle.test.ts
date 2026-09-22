@@ -289,4 +289,46 @@ describe('pendle_market_scan — handler (action=analyze)', () => {
       expect(data.lp_apy_breakdown).toEqual([{ category: 'Underlying Yield', apy_pct: 1 }]);
     }
   });
+
+  it('handles nested categories array historical-data response shape', async () => {
+    __setPendleFetchForTest(
+      vi.fn(async () =>
+        jsonResponse(200, {
+          results: [
+            {
+              timestamp: '2026-09-21T00:00:00.000Z',
+              ytApyBreakdown: {
+                categories: [{ label: 'Protocol Yield', apy: 0.0716 }],
+              },
+              lpApyBreakdown: {
+                categories: [
+                  { label: 'Underlying Yield', apy: 0.0548 },
+                  { label: 'PT Fixed Yield', apy: 0.0286 },
+                ],
+              },
+            },
+          ],
+        }),
+      ) as never,
+    );
+
+    const t = TOOL_BY_NAME.pendle_market_scan!;
+    const r = await t.handler(
+      { action: 'analyze', chain_id: 42161, market_address: MARKET, limit: 10 },
+      ctx(),
+    );
+
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const data = r.data as {
+        yt_apy_breakdown: Array<{ category: string; apy_pct: number }>;
+        lp_apy_breakdown: Array<{ category: string; apy_pct: number }>;
+      };
+      expect(data.yt_apy_breakdown).toEqual([{ category: 'Protocol Yield', apy_pct: 7.16 }]);
+      expect(data.lp_apy_breakdown).toEqual([
+        { category: 'Underlying Yield', apy_pct: 5.48 },
+        { category: 'PT Fixed Yield', apy_pct: 2.86 },
+      ]);
+    }
+  });
 });

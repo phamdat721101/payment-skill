@@ -1,0 +1,31 @@
+SCORE	ENTITY_ID	TYPE	URI	GIST
+20.781284154865546	file::src/rollover.ts	CodeFile	file://src/rollover.ts	// Read-only DeFi rollover research for Morpho Blue positions. This module
+19.71633187819206	file::docs/prds/defi-rollover-spec-envelope.json	CodeFile	file://docs/prds/defi-rollover-spec-envelope.json	{
+19.390086795691367	file::src/tools.ts	CodeFile	file://src/tools.ts	// Single source of truth for every tool the agent can call.
+18.59049603760562	file::docs/PRD-v032-defi-lending-rollover-research-engine.md	CodeFile	file://docs/PRD-v032-defi-lending-rollover-research-engine.md	# PRD: DeFi Lending Rollover Research Engine (v0.32.0)
+18.100322338565125	file::docs/prds/defi-research-tools-spec.md	CodeFile	file://docs/prds/defi-research-tools-spec.md	# DeFi Research Tools — Spec & Verification Handoff
+17.160580171655244	file::test/rollover.test.ts	CodeFile	file://test/rollover.test.ts	import { afterEach, describe, expect, it, vi } from 'vitest';
+16.994651834778015	file::SKILL.md	CodeFile	file://SKILL.md	---
+12.781245329629428	file::test/aave.test.ts	CodeFile	file://test/aave.test.ts	import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+12.150139509954299	file::docs/features/defi-rollover-decision-engine-map.md	CodeFile	file://docs/features/defi-rollover-decision-engine-map.md	# System Map: defi-rollover-decision-engine
+11.481119737289731	file::README.md	CodeFile	file://README.md	<div align="center">
+10.406581822286258	file::src/handlers.ts	CodeFile	file://src/handlers.ts	// 20 tool handlers — the imperative half of the registry.
+8.762762899986761	file::test/xrpl-vault-analysis.test.ts	CodeFile	file://test/xrpl-vault-analysis.test.ts	import { describe, expect, it, vi } from 'vitest';
+8.669322896470918	file::test/morpho.test.ts	CodeFile	file://test/morpho.test.ts	import { afterEach, describe, expect, it, vi } from 'vitest';
+8.469206899902943	file::docs/prds/prd-02-confirm-token-cli-and-tests.md	CodeFile	file://docs/prds/prd-02-confirm-token-cli-and-tests.md	# PRD-02: `confirm` CLI Command + Confirmation-Threshold Test Suite
+7.744730184795813	file::src/morpho.ts	CodeFile	file://src/morpho.ts	// Morpho read-only research module — position snapshots + market comparison
+7.631420151928561	file::src/mcp.ts	CodeFile	file://src/mcp.ts	// MCP server — one shared dispatcher, two transports (stdio + HTTP).
+7.094331782748372	file::test/flare.test.ts	CodeFile	file://test/flare.test.ts	import { afterEach, describe, expect, it, vi } from 'vitest';
+6.965839708627935	file::test/pendle.test.ts	CodeFile	file://test/pendle.test.ts	import { afterEach, describe, expect, it, vi } from 'vitest';
+6.592517706038199	file::package.json	CodeFile	file://package.json	{
+5.6903168238915445	file::package-lock.json	CodeFile	file://package-lock.json	{
+5.308103416324341	file::test/tools.test.ts	CodeFile	file://test/tools.test.ts	import { describe, expect, it, beforeEach } from 'vitest';
+4.659594703007928	file::src/config.ts	CodeFile	file://src/config.ts	// Skill-level config at ~/.n-payment/config.json and ~/.n-payment/policy.json.
+4.556018363997449	file::test/xrpfi.test.ts	CodeFile	file://test/xrpfi.test.ts	import { describe, expect, it, vi } from 'vitest';
+4.45664187101521	file::docs/state/active_session.md	CodeFile	file://docs/state/active_session.md	# Active session
+4.32096166066647	file::docs/prds/prd-05-lockfile-refresh.md	CodeFile	file://docs/prds/prd-05-lockfile-refresh.md	# PRD-05: Lockfile Refresh + CI Gate for `ws` and `vitest`
+4.2281906307527555	file::src/cli.ts	CodeFile	file://src/cli.ts	// `n-payment-skill` CLI — commander-based subcommand router.
+4.1348637086355815	file::docs/prds/README.md	CodeFile	file://docs/prds/README.md	# Security-Audit Round-1 PRDs
+3.8818631295138664	file::docs/morph-hoodi-upgrade-notes.md	CodeFile	file://docs/morph-hoodi-upgrade-notes.md	# 🧰 Morph Hoodi x402 — Upgrade Notes (`n-payment` v0.20-dev + `payment-skill` v1.2-dev)
+3.758340239551645	file::src/pendle.ts	CodeFile	file://src/pendle.ts	// Pendle read-only research module — market comparison + APY-breakdown
+3.57248609762196	file::docs/stellar-latest-updates-2026-05.md	CodeFile	file://docs/stellar-latest-updates-2026-05.md	# 🌟 Stellar — Latest Updates (May 2026)

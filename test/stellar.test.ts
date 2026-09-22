@@ -6,7 +6,9 @@ import {
   deriveStellarKeypair,
   fetchStellarBalance,
   isStellarConfigError,
+  pickStellarAnchorRegistry,
   pickStellarConfig,
+  SDF_TEST_ANCHOR_HOME_DOMAIN,
 } from '../src/stellar.js';
 
 const SAMPLE_PRIV =
@@ -150,5 +152,40 @@ describe('buildStellarPaymentUri (SEP-7)', () => {
     expect(() =>
       buildStellarPaymentUri({ destination: '0xdeadbeef', amount: '1' }),
     ).toThrow(/G-address/);
+  });
+});
+
+// ─── Anchor registry (n-payment v0.30) ───────────────────────────────────────
+// Hermetic: we mock the SDK's DefaultAnchorRegistry constructor so this
+// test file never touches the real SDK. Adding entries is captured in a
+// simple array the assertions can inspect. `vi.hoisted` is required
+// because `vi.mock` factories are hoisted to top-of-file before any
+// describe-scope declarations exist.
+const { added } = vi.hoisted(() => ({ added: [] as Array<Record<string, unknown>> }));
+
+vi.mock('n-payment', () => ({
+  DefaultAnchorRegistry: vi.fn().mockImplementation(() => ({
+    add: (a: Record<string, unknown>) => {
+      added.push(a);
+    },
+  })),
+}));
+
+describe('pickStellarAnchorRegistry', () => {
+  it('auto-registers the SDF reference anchor on testnet', async () => {
+    added.length = 0;
+    const r = await pickStellarAnchorRegistry({ chain: 'stellar-testnet', env: {} as NodeJS.ProcessEnv });
+    expect(r).toBeDefined();
+    expect(added).toHaveLength(1);
+    expect(added[0]!.homeDomain).toBe(SDF_TEST_ANCHOR_HOME_DOMAIN);
+    expect(added[0]!.supportedAssets).toEqual(['USDC']);
+    expect(added[0]!.supportedFiat).toEqual(['USD']);
+  });
+
+  it('returns an empty default registry on mainnet (SDK reads env overrides)', async () => {
+    added.length = 0;
+    const r = await pickStellarAnchorRegistry({ chain: 'stellar-mainnet', env: {} as NodeJS.ProcessEnv });
+    expect(r).toBeDefined();
+    expect(added).toHaveLength(0);
   });
 });

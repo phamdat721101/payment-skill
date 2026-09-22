@@ -1,0 +1,31 @@
+SCORE	ENTITY_ID	TYPE	URI	GIST
+29.859873096491235	file::docs/PRD-v032-defi-lending-rollover-research-engine.md	CodeFile	file://docs/PRD-v032-defi-lending-rollover-research-engine.md	# PRD: DeFi Lending Rollover Research & Execution Engine (v0.32.0)
+17.190754710398444	file::docs/stellar-latest-updates-2026-05.md	CodeFile	file://docs/stellar-latest-updates-2026-05.md	# 🌟 Stellar — Latest Updates (May 2026)
+14.479490895046766	file::README.md	CodeFile	file://README.md	<div align="center">
+14.206723422391972	file::docs/prds/defi-research-tools-spec.md	CodeFile	file://docs/prds/defi-research-tools-spec.md	# DeFi Research Tools — Spec & Verification Handoff
+13.167159341221023	file::SKILL.md	CodeFile	file://SKILL.md	---
+12.124300651699794	file::src/handlers.ts	CodeFile	file://src/handlers.ts	// 20 tool handlers — the imperative half of the registry.
+11.135543546581545	file::docs/fxrp-mint-article.md	CodeFile	file://docs/fxrp-mint-article.md	# 🪙→🔥 Bridge XRP to FXRP in one prompt
+11.080916535385704	file::src/flare.ts	CodeFile	file://src/flare.ts	// Flare FAssets / Smart Accounts module — read-only state lookup + reference
+10.987695598714387	file::src/spacerouter.ts	CodeFile	file://src/spacerouter.ts	// SpaceRouter (Spacecoin) adapter: dedicated wallet, escrow ABI, gateway client.
+10.90761214234516	file::scripts/inspect-fxrp.mjs	CodeFile	file://scripts/inspect-fxrp.mjs	// Coston2 state inspector. Run from the payment-skill repo root so viem
+9.991434573950533	file::docs/launch-article.md	CodeFile	file://docs/launch-article.md	# 🚀 From `npx` to USDC + APY in 90 seconds
+8.899500933109783	file::install.sh	CodeFile	file://install.sh	#!/usr/bin/env sh
+8.832410616743502	file::test/pendle.test.ts	CodeFile	file://test/pendle.test.ts	import { afterEach, describe, expect, it, vi } from 'vitest';
+8.475157978327617	file::docs/aave-yield-article.md	CodeFile	file://docs/aave-yield-article.md	# 💸 Stop letting your AI agent's USDC sit idle
+8.058343990304705	file::src/tools.ts	CodeFile	file://src/tools.ts	// Single source of truth for every tool the agent can call.
+7.675023447817146	file::docs/n-payment-v029-rlusd-learnings.md	CodeFile	file://docs/n-payment-v029-rlusd-learnings.md	# n-payment v0.29.0 — XRPL RLUSD agentic-payment learnings
+6.321928182367524	file::src/pendle.ts	CodeFile	file://src/pendle.ts	// Pendle read-only research module — market comparison + APY-breakdown
+5.315712609100069	file::docs/moneygram-stellar-agent-rails-post.md	CodeFile	file://docs/moneygram-stellar-agent-rails-post.md	# 🌍 Build Agent Payment Rails on Stellar with MoneyGram
+5.036607053226506	file::scripts/setup-rlusd-trustline.mjs	CodeFile	file://scripts/setup-rlusd-trustline.mjs	// scripts/setup-rlusd-trustline.mjs
+4.994360299089008	file::scripts/t54-direct-rlusd-demo.mjs	CodeFile	file://scripts/t54-direct-rlusd-demo.mjs	// scripts/t54-direct-rlusd-demo.mjs
+4.780710579672105	file::docs/stellar-article.md	CodeFile	file://docs/stellar-article.md	# 🤖🌍 Pay-Per-Call AI Agents on Stellar in One Line
+4.734210154631627	file::test/schema.test.ts	CodeFile	file://test/schema.test.ts	import { describe, expect, it } from 'vitest';
+4.61889683531219	file::docs/x402-rlusd-testnet-post.md	CodeFile	file://docs/x402-rlusd-testnet-post.md	# 💸 Paid HTTP for Agents: Shipping an x402 RLUSD Service on XRPL Testnet with `payment-skill` + `n-payment`
+4.567863809557981	file::src/schema.ts	CodeFile	file://src/schema.ts	// Pure schema converters. Used by MCP `tools/list` (JSON Schema), the
+4.548372312287055	file::docs/article.md	CodeFile	file://docs/article.md	# Add web3 payments to your product in one line
+4.450738391220453	file::docs/morph-hoodi-x402-pay-per-signal.md	CodeFile	file://docs/morph-hoodi-x402-pay-per-signal.md	# 🤖 Pay-Per-Signal: How I Bought 5 Trading Decisions for $0.001 on Morph Hoodi (x402 + EIP-3009)
+4.118894352555938	file::test/mcp.test.ts	CodeFile	file://test/mcp.test.ts	import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+4.0228962284336625	file::docs/iusd-x402-bridge-article.md	CodeFile	file://docs/iusd-x402-bridge-article.md	# 🪙 Pay any iUSD-paywalled API with one `fetch` — `payment-skill` × Initia × x402
+3.9938557351023225	file::scripts/rlusd-x402-service-demo.mjs	CodeFile	file://scripts/rlusd-x402-service-demo.mjs	// scripts/rlusd-x402-service-demo.mjs
+3.855711375160234	file::test/spacerouter.test.ts	CodeFile	file://test/spacerouter.test.ts	import { mkdtempSync, readFileSync, statSync, existsSync } from 'node:fs';

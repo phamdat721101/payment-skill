@@ -1,0 +1,6 @@
+{
+  "query_hash": "q_79aefa25",
+  "intent": "hydrate:src/rollover.ts:1-2000,src/morpho.ts:1-2000,src/handlers.ts:1-3000,src/tools.ts:1-3000,test/rollover.test.ts:1-3000",
+  "created_at": "2026-09-22T15:36:50.389Z",
+  "candidate_count": 0
+}

@@ -1,0 +1,6 @@
+{
+  "query_hash": "q_e94b6e09",
+  "intent": "hydrate:file::src/rollover.ts,file::src/morpho.ts,file::src/handlers.ts,file::src/tools.ts,file::test/rollover.test.ts",
+  "created_at": "2026-09-22T15:36:31.073Z",
+  "candidate_count": 0
+}

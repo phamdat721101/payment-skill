@@ -133,3 +133,44 @@ describe('Creditcoin (SpaceCoin) chain', () => {
     expect(r.message).toMatch(/mainnet/);
   });
 });
+
+// ─── Doctor: Stellar off-ramp probes ─────────────────────────────────────────
+describe('runDoctor — stellar off-ramp probes', () => {
+  const G_ADDR = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' as const;
+
+  it('stellar-testnet reports OK when the SDF test anchor TOML is reachable', async () => {
+    const fetchFn = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes('testanchor.stellar.org')) return { ok: true, status: 200 };
+      // Horizon chain-id probe fallback (used by the existing RPC check).
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    const r = await runDoctor(G_ADDR as never, 'stellar-testnet', fetchFn as never, {} as NodeJS.ProcessEnv);
+    const c = r.checks.find((x) => x.name === 'stellar_off_ramp');
+    expect(c).toBeDefined();
+    expect(c!.status).toBe('ok');
+    expect(c!.message).toMatch(/testanchor\.stellar\.org/);
+  });
+
+  it('stellar-mainnet warns when STELLAR_ANCHOR_MONEYGRAM_COM_TOML_URL is unset', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    const r = await runDoctor(G_ADDR as never, 'stellar-mainnet', fetchFn as never, {} as NodeJS.ProcessEnv);
+    const c = r.checks.find((x) => x.name === 'stellar_off_ramp');
+    expect(c).toBeDefined();
+    expect(c!.status).toBe('warn');
+    expect(c!.message).toMatch(/MoneyGram anchor not configured/);
+    expect(c!.hint).toContain('developer.moneygram.com');
+  });
+
+  it('stellar-mainnet probes STELLAR_ANCHOR_MONEYGRAM_COM_TOML_URL when set', async () => {
+    const anchorUrl = 'https://previewstellar.moneygram.com/.well-known/stellar.toml';
+    const fetchFn = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url) === anchorUrl) return { ok: true, status: 200 };
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    const env = { STELLAR_ANCHOR_MONEYGRAM_COM_TOML_URL: anchorUrl } as NodeJS.ProcessEnv;
+    const r = await runDoctor(G_ADDR as never, 'stellar-mainnet', fetchFn as never, env);
+    const c = r.checks.find((x) => x.name === 'stellar_off_ramp');
+    expect(c!.status).toBe('ok');
+    expect(c!.message).toContain(anchorUrl);
+  });
+});
