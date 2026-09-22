@@ -460,6 +460,76 @@ export const TOOLS: ReadonlyArray<Tool> = [
     handler: h.morpho_market_scan as never,
   }),
 
+  def({
+    name: 'defi_rollover_decision_engine',
+    description:
+      'Read-only Morpho Blue rollover research across Ethereum, Base, and Arbitrum. Evaluates LTV, health factor, caller-supplied maturity/carry evidence, and candidate liquidity. Returns a non-executable research intent with explicit provenance and blockers; never builds calldata, signs, selects flash liquidity, or broadcasts.',
+    schema: z.object({
+      chain: z.enum(['ethereum-mainnet', 'base-mainnet', 'arbitrum-one']),
+      user_address: Address,
+      current_market_id: z.string().regex(/^0x[a-fA-F0-9]{64}$/, 'Morpho market id: 0x + 64 hex chars'),
+      candidate_market_ids: z.array(z.string().regex(/^0x[a-fA-F0-9]{64}$/, 'Morpho market id: 0x + 64 hex chars')).min(1).max(10),
+      risk_policy: z.object({
+        max_ltv_bps: z.number().int().min(1).max(10_000).default(8_000),
+        min_health_factor: z.number().positive().max(100).default(1.1),
+        maturity_warning_seconds: z.number().int().positive().max(365 * 24 * 60 * 60).default(7 * 24 * 60 * 60),
+        min_candidate_liquidity_bps: z.number().int().min(1).max(100_000).default(10_000),
+      }).default({}),
+      current_market_evidence: z.object({
+        loan_asset: Address.optional(),
+        collateral_asset: Address.optional(),
+        maturity_timestamp: z.number().int().positive().optional(),
+        borrow_apy_bps: z.number().int().min(-100_000).max(100_000).optional(),
+        collateral_yield_apy_bps: z.number().int().min(-100_000).max(100_000).optional(),
+      }).optional(),
+      candidate_market_evidence: z.array(z.object({
+        market_id: z.string().regex(/^0x[a-fA-F0-9]{64}$/, 'Morpho market id: 0x + 64 hex chars'),
+        loan_asset: Address.optional(),
+        collateral_asset: Address.optional(),
+        maturity_timestamp: z.number().int().positive().optional(),
+        borrow_apy_bps: z.number().int().min(-100_000).max(100_000).optional(),
+        collateral_yield_apy_bps: z.number().int().min(-100_000).max(100_000).optional(),
+      })).max(10).optional(),
+    }).superRefine((value, refinement) => {
+      const currentMarket = value.current_market_id.toLowerCase();
+      if (value.candidate_market_ids.some((marketId) => marketId.toLowerCase() === currentMarket)) {
+        refinement.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['candidate_market_ids'],
+          message: 'candidate_market_ids must not include current_market_id',
+        });
+      }
+      const candidateIds = new Set(value.candidate_market_ids.map((marketId) => marketId.toLowerCase()));
+      if (candidateIds.size !== value.candidate_market_ids.length) {
+        refinement.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['candidate_market_ids'],
+          message: 'candidate_market_ids must be unique',
+        });
+      }
+      const evidenceIds = new Set<string>();
+      value.candidate_market_evidence?.forEach((evidence, index) => {
+        const evidenceId = evidence.market_id.toLowerCase();
+        if (evidenceIds.has(evidenceId)) {
+          refinement.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['candidate_market_evidence', index, 'market_id'],
+            message: 'candidate_market_evidence market_id entries must be unique',
+          });
+        }
+        evidenceIds.add(evidenceId);
+        if (!candidateIds.has(evidenceId)) {
+          refinement.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['candidate_market_evidence', index, 'market_id'],
+            message: 'candidate_market_evidence market_id must appear in candidate_market_ids',
+          });
+        }
+      });
+    }),
+    handler: h.defi_rollover_decision_engine as never,
+  }),
+
   // ─── Pendle read-only research (independent of n-payment) ──────────────────
   def({
     name: 'pendle_market_scan',

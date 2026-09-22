@@ -12,7 +12,22 @@
 import { createPublicClient, defineChain, http, type Address, type PublicClient } from 'viem';
 import { CHAIN_META } from './faucet.js';
 
-export type MorphoChain = 'base-mainnet' | 'base-sepolia';
+export type MorphoChain =
+  | 'ethereum-mainnet'
+  | 'base-mainnet'
+  | 'base-sepolia'
+  | 'arbitrum-one';
+
+const MORPHO_CHAIN_META: Record<MorphoChain, { chainId: number; name: string; rpcUrl: string }> = {
+  'ethereum-mainnet': CHAIN_META['ethereum-mainnet'],
+  'base-mainnet': CHAIN_META['base-mainnet'],
+  'base-sepolia': CHAIN_META['base-sepolia'],
+  'arbitrum-one': {
+    chainId: 42161,
+    name: 'Arbitrum One',
+    rpcUrl: 'https://arb1.arbitrum.io/rpc',
+  },
+};
 
 // ── Memoized public client per chain (mirrors src/flare.ts) ────────────────
 const clientCache = new Map<MorphoChain, PublicClient>();
@@ -20,7 +35,7 @@ const clientCache = new Map<MorphoChain, PublicClient>();
 function getClient(chain: MorphoChain): PublicClient {
   const cached = clientCache.get(chain);
   if (cached) return cached;
-  const meta = CHAIN_META[chain];
+  const meta = MORPHO_CHAIN_META[chain];
   const c = createPublicClient({
     chain: defineChain({
       id: meta.chainId,
@@ -183,4 +198,3 @@ export async function fetchMorphoMarketComparisons(opts: {
   summaries.sort((a, b) => b.supply_apy_pct - a.supply_apy_pct);
   return opts.limit ? summaries.slice(0, opts.limit) : summaries;
 }
-
