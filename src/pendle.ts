@@ -114,7 +114,8 @@ export async function fetchPendleMarketComparisons(opts: {
   apiKey?: string;
 }): Promise<PendleMarketSummary[]> {
   const limit = Math.min(opts.limit ?? 10, 100);
-  const raw = (await pendleGet(`/v2/markets/all?limit=${limit}`, {
+  const chainParam = opts.chainId != null ? `&chainId=${opts.chainId}` : '';
+  const raw = (await pendleGet(`/v2/markets/all?limit=${limit}${chainParam}`, {
     apiKey: opts.apiKey,
   })) as { results?: RawPendleMarket[] };
   const markets = (raw.results ?? [])
@@ -138,17 +139,25 @@ export interface PendleMarketAnalysis {
 }
 
 // Raw shape per docs.pendle.finance's v3 historical-data response: each
-// breakdown entry is a category name mapped to a decimal-fraction APY.
+// breakdown entry is either a dictionary or contains a categories array.
 interface RawApyBreakdown {
-  ytApyBreakdown?: Record<string, number>;
-  lpApyBreakdown?: Record<string, number>;
+  ytApyBreakdown?: Record<string, number> | { categories?: Array<{ label?: string; apy?: number }> };
+  lpApyBreakdown?: Record<string, number> | { categories?: Array<{ label?: string; apy?: number }> };
 }
 
-function shapeBreakdown(raw: Record<string, number> | undefined): PendleApyBreakdownCategory[] {
-  if (!raw) return [];
-  return Object.entries(raw).map(([category, decimalFraction]) => ({
+function shapeBreakdown(
+  raw: Record<string, number> | { categories?: Array<{ label?: string; apy?: number }> } | undefined,
+): PendleApyBreakdownCategory[] {
+  if (!raw || typeof raw !== 'object') return [];
+  if ('categories' in raw && Array.isArray(raw.categories)) {
+    return raw.categories.map((c) => ({
+      category: c.label ?? 'Unknown',
+      apy_pct: Number(((c.apy ?? 0) * 100).toFixed(4)),
+    }));
+  }
+  return Object.entries(raw as Record<string, number>).map(([category, decimalFraction]) => ({
     category,
-    apy_pct: Number((decimalFraction * 100).toFixed(4)),
+    apy_pct: Number(((decimalFraction ?? 0) * 100).toFixed(4)),
   }));
 }
 

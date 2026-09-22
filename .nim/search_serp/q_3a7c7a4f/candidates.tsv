@@ -1,0 +1,31 @@
+SCORE	ENTITY_ID	TYPE	URI	GIST
+22.097779613041137	file::docs/prds/defi-rollover-spec-envelope.json	CodeFile	file://docs/prds/defi-rollover-spec-envelope.json	{
+20.22031238008231	file::docs/PRD-v032-defi-lending-rollover-research-engine.md	CodeFile	file://docs/PRD-v032-defi-lending-rollover-research-engine.md	# PRD: DeFi Lending Rollover Research Engine (v0.32.0)
+19.46863841928716	file::docs/features/defi-rollover-decision-engine-map.md	CodeFile	file://docs/features/defi-rollover-decision-engine-map.md	# System Map: defi-rollover-decision-engine
+18.81796282118148	file::test/rollover.test.ts	CodeFile	file://test/rollover.test.ts	import { afterEach, describe, expect, it, vi } from 'vitest';
+14.247401252766261	file::SKILL.md	CodeFile	file://SKILL.md	---
+13.254303855133617	file::docs/state/active_session.md	CodeFile	file://docs/state/active_session.md	# Active session
+13.211690210126193	file::src/rollover.ts	CodeFile	file://src/rollover.ts	// Read-only DeFi rollover research for Morpho Blue positions. This module
+12.500114959243804	file::src/handlers.ts	CodeFile	file://src/handlers.ts	// 20 tool handlers — the imperative half of the registry.
+11.754458302292091	file::src/tools.ts	CodeFile	file://src/tools.ts	// Single source of truth for every tool the agent can call.
+11.321372822080054	file::docs/n-payment-v029-rlusd-learnings.md	CodeFile	file://docs/n-payment-v029-rlusd-learnings.md	# n-payment v0.29.0 — XRPL RLUSD agentic-payment learnings
+9.917606846652143	file::docs/prds/defi-research-tools-spec.md	CodeFile	file://docs/prds/defi-research-tools-spec.md	# DeFi Research Tools — Spec & Verification Handoff
+9.550947843551464	file::README.md	CodeFile	file://README.md	<div align="center">
+9.03485834166942	file::docs/stellar-latest-updates-2026-05.md	CodeFile	file://docs/stellar-latest-updates-2026-05.md	# 🌟 Stellar — Latest Updates (May 2026)
+8.715315444389196	file::docs/fxrp-mint-article.md	CodeFile	file://docs/fxrp-mint-article.md	# 🪙→🔥 Bridge XRP to FXRP in one prompt
+7.885896782662838	file::src/flare.ts	CodeFile	file://src/flare.ts	// Flare FAssets / Smart Accounts module — read-only state lookup + reference
+7.836064137470947	file::src/spacerouter.ts	CodeFile	file://src/spacerouter.ts	// SpaceRouter (Spacecoin) adapter: dedicated wallet, escrow ABI, gateway client.
+7.313082866602034	file::install.sh	CodeFile	file://install.sh	#!/usr/bin/env sh
+7.1721079518453035	file::docs/x402-rlusd-testnet-post.md	CodeFile	file://docs/x402-rlusd-testnet-post.md	# 💸 Paid HTTP for Agents: Shipping an x402 RLUSD Service on XRPL Testnet with `payment-skill` + `n-payment`
+7.035747141115361	file::test/xrpfi.test.ts	CodeFile	file://test/xrpfi.test.ts	import { describe, expect, it, vi } from 'vitest';
+6.855278880271002	file::scripts/setup-rlusd-trustline.mjs	CodeFile	file://scripts/setup-rlusd-trustline.mjs	// scripts/setup-rlusd-trustline.mjs
+6.5251101508839815	file::scripts/rlusd-x402-service-demo.mjs	CodeFile	file://scripts/rlusd-x402-service-demo.mjs	// scripts/rlusd-x402-service-demo.mjs
+6.288161277367952	file::scripts/inspect-fxrp.mjs	CodeFile	file://scripts/inspect-fxrp.mjs	// Coston2 state inspector. Run from the payment-skill repo root so viem
+6.119540489119867	file::docs/stellar-article.md	CodeFile	file://docs/stellar-article.md	# 🤖🌍 Pay-Per-Call AI Agents on Stellar in One Line
+5.771679648231422	file::docs/launch-article.md	CodeFile	file://docs/launch-article.md	# 🚀 From `npx` to USDC + APY in 90 seconds
+5.711982221133857	file::test/aave.test.ts	CodeFile	file://test/aave.test.ts	import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+5.68516930724903	file::src/morpho.ts	CodeFile	file://src/morpho.ts	// Morpho read-only research module — position snapshots + market comparison
+5.606640573491476	file::test/tools.test.ts	CodeFile	file://test/tools.test.ts	import { describe, expect, it, beforeEach } from 'vitest';
+5.5371662111935445	file::scripts/t54-direct-rlusd-demo.mjs	CodeFile	file://scripts/t54-direct-rlusd-demo.mjs	// scripts/t54-direct-rlusd-demo.mjs
+5.16346913968043	file::src/mcp.ts	CodeFile	file://src/mcp.ts	// MCP server — one shared dispatcher, two transports (stdio + HTTP).
+5.115827687876637	file::test/pendle.test.ts	CodeFile	file://test/pendle.test.ts	import { afterEach, describe, expect, it, vi } from 'vitest';

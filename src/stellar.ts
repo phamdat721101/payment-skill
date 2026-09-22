@@ -194,3 +194,47 @@ export function buildStellarPaymentUri(args: StellarPaymentUriArgs): string {
   }
   return `web+stellar:pay?${params.toString()}`;
 }
+
+// ─── Anchor registry factory (n-payment v0.30) ───────────────────────────────
+/**
+ * Which chain the registry targets. Kept narrow — off-ramp only makes sense
+ * against Stellar public / test networks.
+ */
+export type StellarAnchorChain = 'stellar-testnet' | 'stellar-mainnet';
+
+/** SDF's public reference test anchor. Implements SEP-1/10/12/24/31/38 —
+ *  perfect for hermetic dev + CI without MoneyGram allowlisting. */
+export const SDF_TEST_ANCHOR_HOME_DOMAIN = 'testanchor.stellar.org';
+
+/**
+ * Return a DefaultAnchorRegistry pre-configured for the target chain.
+ *
+ * • `stellar-testnet` auto-registers SDF's reference anchor so first-run
+ *   demos work with zero env vars.
+ * • `stellar-mainnet` returns the SDK's default registry as-is; the SDK
+ *   itself honors `STELLAR_ANCHOR_<HOMEDOMAIN>_TOML_URL` overrides for
+ *   MoneyGram's allowlisted Preview host (see moneygram-stellar-agent-kit
+ *   skill for the env-var contract).
+ *
+ * Lazy-imports `n-payment` so the skill still boots when the SDK is missing.
+ */
+export async function pickStellarAnchorRegistry(opts: {
+  chain: StellarAnchorChain;
+  env?: NodeJS.ProcessEnv;
+}): Promise<unknown> {
+  const mod = (await import('n-payment')) as unknown as {
+    DefaultAnchorRegistry: new () => { add: (a: unknown) => void };
+  };
+  const registry = new mod.DefaultAnchorRegistry();
+  if (opts.chain === 'stellar-testnet') {
+    registry.add({
+      homeDomain: SDF_TEST_ANCHOR_HOME_DOMAIN,
+      name: 'SDF Test Anchor',
+      supportedAssets: ['USDC'],
+      supportedFiat: ['USD'],
+      supportedCountries: ['GLOBAL'],
+      serviceUrls: {},
+    });
+  }
+  return registry;
+}
