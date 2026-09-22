@@ -30,7 +30,7 @@ import {
 } from './config.js';
 import { isUnlocked } from './wallet.js';
 
-export const MCP_VERSION = '2.0.0';
+export const MCP_VERSION = '2.1.0';
 export const MCP_PROTOCOL = '2024-11-05';
 const AUDIT_ROTATE_BYTES = 5 * 1024 * 1024;
 const RATE_BUCKET_SECONDS = 60;

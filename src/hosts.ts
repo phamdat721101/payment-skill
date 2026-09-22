@@ -204,7 +204,7 @@ export const HOSTS: ReadonlyArray<HostDefinition> = [
       await ensureDir(dir);
       const manifest = {
         name: 'n-payment',
-        version: '2.0.0',
+        version: '2.1.0',
         description: 'n-payment-skill: pay HTTP 402, x402, MPP, GOAT.',
         mcpServers: { 'n-payment': await mcpServerEntry(home) },
       };

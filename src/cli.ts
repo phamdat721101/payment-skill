@@ -43,7 +43,7 @@ import { renderSkill } from './skill.js';
 import { detectHosts, installHosts, HOSTS, type HostId } from './hosts.js';
 import { runStdio, runHttp, MCP_VERSION } from './mcp.js';
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 
 // ─── Pretty-print helpers ────────────────────────────────────────────────────
 const c = {

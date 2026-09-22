@@ -44,16 +44,18 @@ describe('encodeCollateralReservationReference', () => {
     expect(b.slice(4, 6)).toBe('ab');
   });
 
-  it('encodes agentVaultId at bytes 2..17 and lots at 18..31 (big-endian)', () => {
+  it('encodes lots at bytes 2..11 and agentVaultId at 12..13 (big-endian)', () => {
     const ref = encodeCollateralReservationReference({
       agentVaultId: 0x1234n,
       lots: 0x5678n,
     });
-    // hex string layout: '0x' + byte0(2) + byte1(2) + agentVaultId(32) + lots(28)
-    // → indices 6..38 = 32 chars of agentVaultId (uint128, big-endian)
-    expect(ref.slice(6, 38)).toBe('00000000000000000000000000001234');
-    // → indices 38..66 = 28 chars of lots (uint112, big-endian)
-    expect(ref.slice(38, 66)).toBe('0000000000000000000000005678');
+    // Layout: 0x + byte0(2) + byte1(2) + lots(20) + agentVaultId(4) + padding(36) = 66 chars
+    expect(ref.length).toBe(66);
+    expect(ref.slice(2, 4)).toBe('00'); // instruction ID
+    expect(ref.slice(4, 6)).toBe('00'); // walletId
+    expect(ref.slice(6, 26)).toBe('00000000000000005678'); // lots (10 bytes)
+    expect(ref.slice(26, 30)).toBe('1234'); // agentVaultId (2 bytes)
+    expect(ref.slice(30, 66)).toBe('0'.repeat(36)); // padding (18 bytes)
   });
 
   it('rejects out-of-range params', () => {
