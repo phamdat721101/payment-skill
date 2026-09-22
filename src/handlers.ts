@@ -41,6 +41,7 @@ import {
 import * as flare from './flare.js';
 import { fetchMorphoPositionSnapshot, fetchMorphoMarketComparisons, type MorphoChain } from './morpho.js';
 import { fetchPendleMarketComparisons, fetchPendleMarketAnalysis } from './pendle.js';
+import { analyzeRolloverOpportunity, type RolloverAnalysisRequest } from './rollover.js';
 
 // v0.23 — iUSD on Initia (USDC EVM → iUSD bridge corridor).
 import {
@@ -3367,6 +3368,14 @@ export const morpho_market_scan = async (
     }
     return fail(`Unknown action: ${(args as { action: string }).action}`, 'INVALID_ACTION');
   });
+
+interface RolloverDecisionArgs extends RolloverAnalysisRequest {}
+
+/** Read-only rollover research. It never creates calldata, signs, or sends. */
+export const defi_rollover_decision_engine = async (
+  args: RolloverDecisionArgs,
+  _ctx: ToolContext,
+): Promise<ToolResult> => wrap(async () => ok(await analyzeRolloverOpportunity(args)));
 
 
 // ────────────────────────────────────────────────────────────────────────────
