@@ -12,6 +12,7 @@
 
 import { z } from 'zod';
 import * as h from './handlers.js';
+import { BacktestSimulationConfigSchema, PositionAnalysisConfigSchema } from './position.js';
 
 // ─── Shared enums & primitives ───────────────────────────────────────────────
 export const CHAIN_KEYS = [
@@ -528,6 +529,22 @@ export const TOOLS: ReadonlyArray<Tool> = [
       });
     }),
     handler: h.defi_rollover_decision_engine as never,
+  }),
+
+  def({
+    name: 'analyze_borrow_position',
+    description:
+      'Read-only, block-pinned borrow-position analysis for Dolomite Margin, Morpho Blue, Aave v3, Silo v2, or Pendle. Returns normalized raw state, protocol provenance, and explicit partial-data markers. Never reads a wallet, signs, estimates gas, or broadcasts.',
+    schema: PositionAnalysisConfigSchema,
+    handler: h.analyze_borrow_position as never,
+  }),
+
+  def({
+    name: 'backtest_rollover_strategy',
+    description:
+      'Archive-RPC backtest of a pinned lending position using historical, price-shock, and time-warp scenarios. Results are modelled transitions only: no executor contract, calldata, signing, fee estimation, or broadcast is performed.',
+    schema: BacktestSimulationConfigSchema,
+    handler: h.backtest_rollover_strategy as never,
   }),
 
   // ─── Pendle read-only research (independent of n-payment) ──────────────────

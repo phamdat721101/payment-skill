@@ -24,7 +24,7 @@ A **payment agent-skill** is a small, self-installing package that turns any AI 
 
 Three properties define the shape:
 
-- 🧩 **One skill, many hosts.** The same install produces MCP tools, function-call schemas, and OpenAPI actions — so the exact same 48 tools work under every host without per-host glue.
+- 🧩 **One skill, many hosts.** The same install produces MCP tools, function-call schemas, and OpenAPI actions — so the exact same 50 tools work under every host without per-host glue.
 - 🔐 **One wallet, many chains.** A single encrypted keyfile derives usable keypairs across EVM, XRPL, Stellar, Solana, Cosmos, and BTC-L2 chains.
 - 🛡️ **One policy engine, every call.** Every signing path passes through unlock → denylist → allowlist → per-tx cap → per-day cap → rate limit. No side doors.
 
@@ -34,7 +34,7 @@ This repo is the reference implementation.
 
 ## ✨ What it does
 
-The skill exposes 48 tools an agent can call. Grouped by intent:
+The skill exposes 50 tools an agent can call. Grouped by intent:
 
 - 💸 **Pay any URL** — auto-detects x402 / MPP / GOAT paywalls, handles the 402 challenge, signs, retries, returns the response body.
 - 🏪 **Monetize an endpoint** — generates ready-to-paste Express middleware so any HTTP endpoint becomes a paid tool other agents can consume.
@@ -215,7 +215,7 @@ Layout of a payment agent-skill:
 payment-skill/
 ├── SKILL.md         # canonical agent skill (auto-rendered with live tool list)
 ├── src/
-│   ├── tools.ts     # single source of truth — 48 tools (declarative)
+│   ├── tools.ts     # single source of truth — 50 tools (declarative)
 │   ├── handlers.ts  # imperative implementations
 │   ├── wallet.ts    # encrypted keyfile store
 │   ├── config.ts    # ~/.n-payment/config.json

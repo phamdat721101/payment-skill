@@ -42,6 +42,12 @@ import * as flare from './flare.js';
 import { fetchMorphoPositionSnapshot, fetchMorphoMarketComparisons, type MorphoChain } from './morpho.js';
 import { fetchPendleMarketComparisons, fetchPendleMarketAnalysis } from './pendle.js';
 import { analyzeRolloverOpportunity, type RolloverAnalysisRequest } from './rollover.js';
+import {
+  analyzeBorrowPosition as analyzeBorrowPositionState,
+  backtestRolloverStrategy as backtestRolloverStrategyState,
+  type BacktestSimulationConfig,
+  type PositionAnalysisConfig,
+} from './position.js';
 
 // v0.23 — iUSD on Initia (USDC EVM → iUSD bridge corridor).
 import {
@@ -3376,6 +3382,18 @@ export const defi_rollover_decision_engine = async (
   args: RolloverDecisionArgs,
   _ctx: ToolContext,
 ): Promise<ToolResult> => wrap(async () => ok(await analyzeRolloverOpportunity(args)));
+
+/** Block-pinned protocol state inspection. Never reaches wallet or dispatcher code. */
+export const analyze_borrow_position = async (
+  args: PositionAnalysisConfig,
+  ctx: ToolContext,
+): Promise<ToolResult> => wrap(async () => ok(await analyzeBorrowPositionState(args, { pendleApiKey: ctx.env.PENDLE_API_KEY })));
+
+/** Modelled, archive-backed research simulation. Never executes a rollover. */
+export const backtest_rollover_strategy = async (
+  args: BacktestSimulationConfig,
+  ctx: ToolContext,
+): Promise<ToolResult> => wrap(async () => ok(await backtestRolloverStrategyState(args, ctx.env, { pendleApiKey: ctx.env.PENDLE_API_KEY })));
 
 
 // ────────────────────────────────────────────────────────────────────────────
